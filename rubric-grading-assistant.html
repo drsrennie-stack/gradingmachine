@@ -1480,8 +1480,10 @@ var tStart=null;
 function stopT(){var s=cur();if(tStart&&s){s.secs=(s.secs||0)+Math.min((Date.now()-tStart)/1000,1200);saveRecs();}tStart=null;}
 function startT(){tStart=document.hidden?null:Date.now();}
 document.addEventListener('visibilitychange',function(){if(document.hidden)stopT();else if($('#gm').open)startT();});
+function rubricBlank(){var r=R();if(isM())return !(r.mastery.tiers||[]).some(function(x){return x.reqs&&x.reqs.length;});return !r.criteria.length||r.criteria.every(function(c){return /^(new criterion|untitled)/i.test(c.name||'')&&!(c.desc||'').trim();});}
+function needRubric(){show('rubric',false);openGen($('#h-rubric'));$('#genWarn').textContent='This assignment does not have a rubric yet, so there is nothing to grade against. Generate one from the instructions here, or close this and build it yourself.';announce($('#genWarn').textContent);}
 function openGM(s,stepKey){
-  if(!isM()&&!R().criteria.length){show('rubric');announce('Add at least one criterion first.');return;}
+  if(rubricBlank()){needRubric();return;}
   stopT();state.curId=s.id;startT();var st=steps();state.step=stepKey?Math.max(0,st.indexOf(stepKey)):(prefs.across&&state.step<st.length?state.step:firstOpenStep(s));
   $('#gmAlert').textContent='';$('#aiPaste').value='';$('#promptStatus').textContent='';$('#aiStatus').textContent='';
   var d=$('#gm');if(!d.open)d.showModal();
@@ -2182,6 +2184,7 @@ function confirmImport(){
   $('#impDlg').close();
   if(tgt===R()){saveNow();renderAll();}else switchRubric(tgt);
   if(state.wz){var wsl=FLOWS[state.wz.flow].steps;if(wsl[state.wz.step]==='assign')state.wz.step=Math.min(state.wz.step+1,wsl.length-1);show('start');}
+  else if(where==='_new'&&!useC&&rubricBlank()){needRubric();$('#genWarn').textContent='"'+name+'" is set up. Next, build its rubric: Claude can draft it from the instructions'+(tgt.instructions?' you just imported':'')+'.';}
   else{show('rubric',false);$('#h-rubric').focus();}
   $('#saveStatus').textContent=(where==='_new'?'Created "'+name+'"':'Filed under "'+tgt.title+'"')+(code?' ('+code+')':'')+'.'+(ver&&where!=='_new'?' Version '+tgt.versions.length+' started.':'')+(keep&&imp.text?' Instructions saved for Claude.':'')+(useC?' Rubric set with '+plural(imp.crits.length,'criterion','criteria')+'.':'');
   announce($('#saveStatus').textContent);
