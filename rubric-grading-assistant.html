@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Rubric Grader</title>
+<title>Fairmark</title>
 <meta name="description" content="Grade every submission against the same rubric, with a reusable comment bank, Claude as a second reader, student grading sheets, and assignment analysis. Data stays on this device.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -16,6 +16,7 @@
   --sage:#B6B9A8;      /* muted sage: dividers, decoration only */
   --olive:#777D6D;     /* olive: control borders, bars, text 24px+ only */
   --ink:#23251F;       /* dark charcoal: all text, focus */
+  --tour:#5E7A5A;      /* deeper sage: tour pointer only (4.6:1 on white) */
   --r:3px;
   --font:"Avenir Next","Manrope",system-ui,-apple-system,"Segoe UI",sans-serif;
 }
@@ -318,6 +319,34 @@ dl.keys dd{margin:0;font-weight:400}
   .sheet{border:0;padding:0;page-break-after:always;break-after:page}
   .sheet:last-child{page-break-after:auto;break-after:auto}
 }
+#intro{position:fixed;inset:0;width:100%;height:100%;max-width:none;max-height:none;margin:0;padding:0;border:0;background:var(--bg);color:var(--ink);overflow:auto}
+#intro::backdrop{background:var(--bg)}
+.intro-in{min-height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:3rem 1.25rem;box-sizing:border-box}
+.intro-mark{width:96px;height:96px;border-radius:4px;background:var(--ink);display:grid;place-items:center;animation:inPop 900ms cubic-bezier(.2,.7,.2,1) both}
+.intro-mark svg{width:60px;height:60px;fill:none;stroke:var(--bg);stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.intro-mark path{stroke-dasharray:20;stroke-dashoffset:20;animation:draw 700ms 700ms ease forwards}
+.intro-name{font-size:clamp(2.6rem,7vw,4.2rem);font-weight:500;letter-spacing:-.02em;margin:1.4rem 0 .3rem;line-height:1.05;animation:fadeUp 800ms 1100ms ease both}
+.intro-tag{font-size:clamp(1.05rem,2.4vw,1.3rem);margin:0;animation:fadeUp 800ms 1500ms ease both}
+.intro-bar{width:min(220px,60vw);height:3px;background:var(--pale);border-radius:2px;margin:2.2rem 0;overflow:hidden;animation:fadeUp 500ms 1700ms ease both}
+.intro-bar span{display:block;height:100%;width:0;background:var(--ink);animation:fill 1400ms 1900ms ease forwards}
+.intro-feats{list-style:none;margin:0 0 2rem;padding:0;display:grid;gap:.9rem;max-width:620px;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));animation:fadeUp 800ms 3200ms ease both}
+.intro-feats li{border-top:1px solid var(--olive);padding-top:.7rem;text-align:left}
+.intro-feats b{display:block;font-weight:500;margin-bottom:.15rem}
+.intro-go{animation:fadeUp 700ms 3500ms ease both}
+.intro-go .btn{min-height:48px;padding:0 1.6rem;font-size:1.05rem}
+.intro-foot{margin-top:1.6rem;font-size:.9rem;animation:fadeUp 700ms 3700ms ease both}
+#tourHi{position:fixed;z-index:9998;border:3px solid var(--tour);border-radius:4px;box-shadow:0 0 0 4px var(--bg),0 0 0 9px rgba(94,122,90,.35),0 0 0 9999px rgba(35,37,31,.38);pointer-events:none;animation:tourPulse 1.8s ease-in-out infinite}
+@keyframes tourPulse{0%,100%{box-shadow:0 0 0 4px var(--bg),0 0 0 9px rgba(94,122,90,.35),0 0 0 9999px rgba(35,37,31,.38)}50%{box-shadow:0 0 0 4px var(--bg),0 0 0 14px rgba(94,122,90,.18),0 0 0 9999px rgba(35,37,31,.38)}}
+#tourPop{position:fixed;z-index:9999;width:min(340px,calc(100vw - 32px));background:var(--bg);color:var(--ink);border:1px solid var(--tour);border-top:5px solid var(--tour);border-radius:4px;padding:1rem 1.1rem;box-sizing:border-box}
+#tourPop h2{font-size:1.05rem;margin:.1rem 0 .4rem}
+#tourPop .tour-dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--tour);margin-right:.45rem;vertical-align:middle}
+#tourPop p{margin:0 0 .8rem}
+#tourPop .tour-nav{display:flex;justify-content:space-between;gap:.5rem;flex-wrap:wrap}
+@keyframes draw{to{stroke-dashoffset:0}}
+@keyframes inPop{from{opacity:0;transform:scale(.92)}to{opacity:1;transform:none}}
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes fill{to{width:100%}}
+@media (prefers-reduced-motion:reduce){.intro-mark path{stroke-dashoffset:0}.intro-bar span{width:100%}}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;animation:none!important;scroll-behavior:auto!important}}
 @media (forced-colors:active){
   .lv:has(input:checked),.chip:has(input:checked){outline:3px solid CanvasText}
@@ -331,8 +360,8 @@ dl.keys dd{margin:0;font-weight:400}
 <div class="app">
   <aside class="side" aria-label="App menu">
     <div class="brand">
-      <span class="brand-mark" aria-hidden="true"><svg class="ic" viewBox="0 0 24 24"><path d="M4 4h16v16H4zM8 12l3 3 5-6"/></svg></span>
-      <span><span class="brand-name">Rubric Grader</span><span class="brand-sub">Fair, consistent feedback</span></span>
+      <span class="brand-mark" aria-hidden="true"><svg class="ic" viewBox="0 0 24 24"><path d="M7.5 12.5l3 3 6-7"/></svg></span>
+      <span><span class="brand-name">Fairmark</span><span class="brand-sub">Grade fairly. Grade the same.</span></span>
     </div>
     <nav class="nav" aria-label="Main">
       <ul>
@@ -343,6 +372,7 @@ dl.keys dd{margin:0;font-weight:400}
         <li><button type="button" data-view="check"><span data-ic="scale"></span>Consistency</button></li>
         <li><button type="button" data-view="analysis"><span data-ic="chart"></span>Analysis</button></li>
         <li><button type="button" data-view="announce"><span data-ic="mega"></span>Announcement</button></li>
+        <li><button type="button" id="navTour"><span data-ic="spark"></span>Tour</button></li>
       </ul>
     </nav>
     <div class="side-foot">
@@ -723,6 +753,31 @@ dl.keys dd{margin:0;font-weight:400}
   </div>
 </dialog>
 
+<!-- INTRO -->
+<dialog id="intro" aria-labelledby="introName" aria-describedby="introTag">
+  <div class="intro-in">
+    <div class="intro-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7.5 12.5l3 3 6-7"/></svg></div>
+    <h1 class="intro-name" id="introName">Fairmark</h1>
+    <p class="intro-tag" id="introTag">Grade fairly. Grade the same. Keep it private.</p>
+    <div class="intro-bar" aria-hidden="true"><span></span></div>
+    <ul class="intro-feats">
+      <li><b>One standard for everyone</b>Your rubric, your comment bank, and Claude's second read keep every grade consistent.</li>
+      <li><b>Built the way you teach</b>Points rubrics, mastery levels, regrades, and an authenticity bonus.</li>
+      <li><b>Private by design</b>Everything stays on this device. Anonymous IDs. No names. No server.</li>
+    </ul>
+    <div class="intro-go row" style="justify-content:center;gap:.6rem"><button type="button" class="btn primary" id="introGo">Get started<span data-ic="right"></span></button><button type="button" class="btn" id="introTour"><span data-ic="spark"></span>Show me around</button></div>
+    <p class="intro-foot"><label class="chip" for="introOn"><input type="checkbox" id="introOn"><span class="box"><span data-ic="check"></span></span>Show this when the app opens</label></p>
+  </div>
+</dialog>
+
+<div id="tourHi" hidden></div>
+<div id="tourPop" role="dialog" aria-labelledby="tourH" aria-describedby="tourP" hidden>
+  <p class="eyebrow" style="margin:0"><span class="tour-dot" aria-hidden="true"></span><span id="tourN"></span></p>
+  <h2 id="tourH" tabindex="-1"></h2>
+  <p id="tourP"></p>
+  <div class="tour-nav"><button type="button" class="btn sm ghost" id="tourEnd">End tour</button><span class="row" style="gap:.4rem"><button type="button" class="btn sm" id="tourBack"><span data-ic="left"></span>Back</button><button type="button" class="btn sm primary" id="tourNext">Next<span data-ic="right"></span></button></span></div>
+</div>
+
 <div id="printArea" aria-hidden="true"></div>
 <div id="announcer" class="sr-only" aria-live="polite"></div>
 
@@ -1002,6 +1057,7 @@ function renderStart(){
     el.innerHTML='<header class="page-head"><div><p class="eyebrow">Start here</p><h1 id="h-start">What do you want to do?</h1><p class="sub">Pick one and I will walk you through it step by step. The dashboard and every tool stay one click away in the menu.</p></div></header>'+
       '<div class="choices">'+Object.keys(FLOWS).map(function(k,i){var F=FLOWS[k];return '<button type="button" class="choice'+(i===0?' main':'')+'" data-flow="'+k+'">'+ic(F.icon)+'<span><b>'+esc(F.title)+'</b><span class="d">'+esc(F.desc)+'</span></span></button>';}).join('')+
       '<button type="button" class="choice" data-go="home">'+ic('home')+'<span><b>Go to the dashboard</b><span class="d">See everything at once and work on your own.</span></span></button></div>'+
+      '<div class="row" style="gap:.6rem;margin-bottom:.6rem"><button type="button" class="btn sm" id="tourAgain">'+ic('spark')+'Show me around</button><button type="button" class="btn sm ghost" id="introAgain">Play the Fairmark intro</button></div>'+
       '<label class="chip" for="guideOn"><input type="checkbox" id="guideOn"'+(prefs.guide===false?'':' checked')+'><span class="box">'+ic('check')+'</span>Open the app on this page</label>';
     return;
   }
@@ -1069,6 +1125,8 @@ function wzBody(k){
 }
 function wzGo(i){state.wz.step=i;renderStart();renderWzBar();var h=$('#h-start');if(h){h.setAttribute('tabindex','-1');h.focus();}}
 function onWzClick(e){
+  if(e.target.closest('#introAgain')){openIntro();return;}
+  if(e.target.closest('#tourAgain')){startTour();return;}
   var fl=e.target.closest('[data-flow]');if(fl){state.wz={flow:fl.dataset.flow,step:0};wzGo(0);return;}
   var b=e.target.closest('[data-wz]');if(!b)return;var a=b.dataset.wz,r=R();
   if(a==='back'){if(state.wz.step===0){state.wz=null;renderStart();$('#h-start').focus();}else wzGo(state.wz.step-1);}
@@ -1098,6 +1156,54 @@ function onWzChange(e){
   if(t.name==='wzAssign'){var x=loadLib()[t.value];if(x&&t.value!==R().id){switchRubric(normalizeRubric(x));var c=$('#wa-'+CSS.escape(t.value));if(c)c.focus();announce('Assignment set to '+R().title+'.');}return;}
   if(t.id==='wzLate'){R().late.enabled=t.checked;saveNow();announce('Late policy '+(t.checked?'on.':'off.'));}
 }
+var TOUR=[
+  {sel:'.nav [data-view=start]',view:'start',h:'Start here',p:'Not sure where to begin? Pick a task here and I walk you through it one step at a time.'},
+  {sel:'#view-start .choice.main',view:'start',h:'Grade an assignment',p:'The most common path: choose your class, choose the assignment, print anonymous IDs, then grade.'},
+  {sel:'#termSel',h:'Semester and class section',p:'Every grade is saved under the semester and section you pick here. Create a new one, like Fall 27 or Class 2, from the menu.'},
+  {sel:'#libSel',h:'Switch assignments',p:'All of your assignments live here. Grades, comments, and versions stay with each one across semesters.'},
+  {sel:'.nav [data-view=rubric]',view:'rubric',h:'Rubric',p:'Generate a rubric from your instructions, or build it yourself. Choose a points rubric or mastery grading.'},
+  {sel:'#btnGen',view:'rubric',h:'Generate rubric',p:'Give it the instructions and the assignment. Claude drafts the criteria or mastery levels, and you review before anything is saved.'},
+  {sel:'.crit-item[data-sel=_bonus]',view:'rubric',h:'Your private settings',p:'The authenticity bonus, regrade policy, and late policy are set here. The bonus is only visible to you.'},
+  {sel:'.nav [data-view=grade]',view:'grade',h:'Submissions',p:'Every anonymous ID, its status, its score, and the student sheet. Finished work has a Regrade button.'},
+  {sel:'#btnAcross',view:'grade',h:'Two ways to grade',p:'Grade one student at a time, or across the class, one question at a time. You can switch inside grading mode too.'},
+  {sel:'.nav [data-view=check]',view:'check',h:'Consistency check',p:'Before you release grades, see places where similar work may have been scored differently.'},
+  {sel:'.nav [data-view=analysis]',view:'analysis',h:'Analysis',p:'See how the assignment performs across semesters, sections, and versions, and where students struggle most.'},
+  {sel:'.nav [data-view=announce]',view:'announce',h:'Announcement',p:'Turn class results into friendly, mentoring feedback for everyone, signed by you.'},
+  {sel:'#navTour',h:'Come back any time',p:'Press Tour whenever you want this walk-through again. That is it. You are ready to grade.'}
+];
+var tourI=-1,tourFrom=null;
+function startTour(){tourFrom=document.activeElement;state.wz=null;tourI=0;tourShow();}
+function endTour(){tourI=-1;$('#tourHi').hidden=true;$('#tourPop').hidden=true;document.removeEventListener('keydown',tourKey,true);window.removeEventListener('resize',tourPlace);
+  var h=$('#view-'+state.view+' h1');if(h){h.setAttribute('tabindex','-1');h.focus();}announce('Tour ended.');}
+function tourKey(e){if(tourI<0)return;if(e.key==='Escape'){e.preventDefault();endTour();}}
+function tourTarget(){var s=TOUR[tourI],el=$(s.sel);if(el&&el.offsetParent===null){var mq=window.matchMedia('(max-width:760px)').matches;if(!mq)el=null;}return el;}
+function tourShow(){
+  var s=TOUR[tourI];if(s.view&&state.view!==s.view)show(s.view,false);
+  var el=tourTarget();if(!el){if(tourI<TOUR.length-1){tourI++;return tourShow();}return endTour();}
+  el.scrollIntoView({block:'center',inline:'nearest'});
+  $('#tourN').textContent='Tour · '+(tourI+1)+' of '+TOUR.length;$('#tourH').textContent=s.h;$('#tourP').textContent=s.p;
+  $('#tourBack').disabled=tourI===0;var last=tourI===TOUR.length-1;$('#tourNext').innerHTML=last?ic('check')+'Done':'Next'+ic('right');$('#tourEnd').hidden=last;
+  $('#tourHi').hidden=false;$('#tourPop').hidden=false;tourPlace();
+  document.addEventListener('keydown',tourKey,true);window.addEventListener('resize',tourPlace);
+  $('#tourH').focus();
+}
+function tourPlace(){if(tourI<0)return;var el=tourTarget();if(!el)return;var b=el.getBoundingClientRect(),hi=$('#tourHi'),pop=$('#tourPop'),pad=4;
+  hi.style.left=(b.left-pad)+'px';hi.style.top=(b.top-pad)+'px';hi.style.width=(b.width+pad*2)+'px';hi.style.height=(b.height+pad*2)+'px';
+  var pw=pop.offsetWidth,ph=pop.offsetHeight,vw=innerWidth,vh=innerHeight,x,y;
+  if(b.right+16+pw<=vw){x=b.right+16;y=b.top;}else if(b.bottom+12+ph<=vh){x=b.left;y=b.bottom+12;}else{x=b.left;y=b.top-12-ph;}
+  x=Math.max(16,Math.min(x,vw-pw-16));y=Math.max(16,Math.min(y,vh-ph-16));pop.style.left=x+'px';pop.style.top=y+'px';}
+$('#tourNext').addEventListener('click',function(){if(tourI>=TOUR.length-1)endTour();else{tourI++;tourShow();}});
+$('#tourBack').addEventListener('click',function(){if(tourI>0){tourI--;tourShow();}});
+$('#tourEnd').addEventListener('click',endTour);
+$('#navTour').addEventListener('click',startTour);
+document.addEventListener('scroll',function(){if(tourI>=0)tourPlace();},true);
+function openIntro(){var d=$('#intro');$('#introOn').checked=prefs.intro!==false;
+  /* restart animations */ d.querySelectorAll('.intro-in').forEach(function(x){x.style.animation='none';});var c=d.querySelector('.intro-in'),cl=c.cloneNode(true);c.parentNode.replaceChild(cl,c);
+  bindIntro();if(!d.open)d.showModal();$('#introGo').focus();}
+function closeIntro(){var d=$('#intro');if(d.open)d.close();}
+function bindIntro(){$('#introGo').addEventListener('click',closeIntro);$('#introTour').addEventListener('click',function(){closeIntro();startTour();});$('#introOn').addEventListener('change',function(){prefs.intro=this.checked;setJSON(LS_PREF,prefs);});}
+bindIntro();
+$('#intro').addEventListener('close',function(){var h=$('#view-'+state.view+' h1');if(h){h.setAttribute('tabindex','-1');h.focus();}});
 $('#view-start').addEventListener('click',onWzClick);
 $('#view-start').addEventListener('change',onWzChange);
 $('#view-start').addEventListener('keydown',function(e){if(e.target.id==='wzNew'&&e.key==='Enter'){e.preventDefault();$('[data-wz=addnew]').click();}if(e.target.id==='wzBlank'&&e.key==='Enter'){e.preventDefault();$('[data-wz=blank]').click();}});
@@ -2290,6 +2396,7 @@ hydrateIcons(document);
   saveNow();
   if(!STORE)$('#saveStatus').textContent='This browser is blocking saved data. Rubrics and records last only until you close the page, so export your work.';
   renderTerm();show(prefs.guide===false?'home':'start',false);
+  if(prefs.intro!==false)openIntro();
 })();
 })();
 </script>
