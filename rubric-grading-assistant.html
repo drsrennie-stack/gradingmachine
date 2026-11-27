@@ -165,6 +165,12 @@ dialog::backdrop{background:rgba(65,68,61,.55)}
 #gm{width:100vw;height:100vh;max-width:100vw;max-height:100vh;margin:0;padding:0;border:0;background:var(--bg)}
 #gm[open]{display:grid;grid-template-rows:auto 1fr}
 #gmAcross[aria-pressed=true]{background:var(--ink);color:var(--bg);border-color:var(--ink);font-weight:500}
+.req-row{display:flex;flex-wrap:wrap;gap:.4rem 1rem;align-items:center;justify-content:space-between;padding:.55rem 0;border-bottom:1px solid var(--sage)}
+.req-row:last-child{border-bottom:0}
+.req-t{margin:0;flex:1 1 260px}
+.req-opts{display:flex;gap:.4rem}
+.m-result{margin:1rem 0;padding:.7rem .9rem;border:1px solid var(--ink);border-radius:var(--r);background:var(--bg);font-weight:500}
+.tagline{display:inline-block;font-size:.75rem;border:1px solid var(--olive);border-radius:2px;padding:0 .35rem;margin-left:.35rem;vertical-align:middle;font-family:var(--font)}
 .across-line{margin:0 0 .9rem;font-size:.9rem;padding:.55rem .8rem;border:1px solid var(--olive);border-radius:var(--r);background:var(--bg)}
 .across-line[hidden]{display:none!important}
 .gm-top{display:flex;flex-wrap:wrap;gap:.75rem 1.25rem;align-items:center;padding:.65rem 1rem;border-bottom:1px solid var(--sage);background:var(--bg2)}
@@ -672,7 +678,9 @@ dl.keys dd{margin:0;font-weight:400}
       <div class="field" style="width:200px;margin:0"><label for="genPts">Points for the content criteria</label><input type="number" id="genPts" min="1" max="1000" value="20" inputmode="numeric"></div>
       <div class="field" style="width:170px;margin:0"><label for="genLv">Levels per criterion</label><select id="genLv"><option>3</option><option selected>4</option><option>5</option></select></div>
     </div>
-    <fieldset style="margin-top:1rem"><legend>Also add your standard criteria</legend><div class="chips" id="genStd"></div><p class="hint">Standard criteria keep their own points. Your late policy stays as it is.</p></fieldset>
+    <label class="chip" for="genM" style="margin-top:1rem"><input type="checkbox" id="genM"><span class="box"><span data-ic="check"></span></span>Mastery grading: write the requirements for each level (70, 80, 90, 100%)</label>
+    <p class="hint" id="genMHint">Students choose a level. Each level includes everything in the levels below it.</p>
+    <fieldset style="margin-top:1rem" id="genStdBox"><legend>Also add your standard criteria</legend><div class="chips" id="genStd"></div><p class="hint">Standard criteria keep their own points. Your late policy stays as it is.</p></fieldset>
     <div class="grid2" style="margin-top:.5rem">
       <div class="card" style="margin:0"><h3 style="font-size:1rem;margin-top:0">With Claude (best)</h3>
         <ol class="steps-ol"><li>Copy the prompt and paste it into Claude.</li><li>Paste Claude's reply below.</li></ol>
@@ -811,6 +819,13 @@ function defaultStd(){return [mkCrit('Following directions','The submission foll
   [['Fully followed',5,'Every instruction is followed. All required parts are present in the required format.'],['Mostly followed',4,'One minor instruction is missed, such as format or length.'],['Partially followed',2,'Several instructions are missed, or a required part is missing.'],['Not followed',0,'The submission does not follow the instructions.']],
   ['All required parts are included','Required format is used','Length or word count is within the limit'],
   ['You followed every instruction.','Re-read the instructions before you submit. Some required parts were missing.','Check the required format (file type, headings, or naming) next time.'])];}
+function defaultMastery(){return {enabled:false,pts:100,none:0,tiers:[70,80,90,100].map(function(p){return {id:uid(),label:p+'%',pct:p,reqs:[]};})};}
+function normMastery(m){m=m||{};var tiers=Array.isArray(m.tiers)&&m.tiers.length?m.tiers.map(function(x){return {id:String(x.id||uid()),label:String(x.label||''),pct:Math.max(0,Math.min(100,num(x.pct))),reqs:normItems(x.reqs)};}):defaultMastery().tiers;
+  return {enabled:!!m.enabled,pts:num(m.pts)>0?num(m.pts):100,none:Math.max(0,Math.min(100,num(m.none))),tiers:tiers};}
+var BONUS_BANK=['You used your own example here. That shows you understand this beyond the textbook.','Your clinical connection made this answer more than correct. That is exactly the kind of thinking I want to see.','Your original drawing shows the structure in your own way. Keep doing that.','You connected this to another body system, which shows real understanding.','Your reasoning went beyond what we covered in class. That is how experts think.'];
+function defaultBonus(){return {enabled:false,levels:[{id:uid(),label:'No bonus',pct:0},{id:uid(),label:'Authenticity bonus',pct:1}],bank:BONUS_BANK.map(mkItem)};}
+function normBonus(b){if(!b||!Array.isArray(b.levels))return defaultBonus();return {enabled:!!b.enabled,levels:b.levels.map(function(x){return {id:String(x.id||uid()),label:String(x.label||''),pct:Math.max(0,Math.min(100,num(x.pct)))};}),bank:normItems(b.bank)};}
+function normRegrade(g){g=g||{};return {enabled:g.enabled!==false,cap:g.cap==null?90:Math.max(0,Math.min(100,num(g.cap)))};}
 function loadStd(){var o=getJSON(LS_STD);return Array.isArray(o.items)?o.items.map(normCrit):defaultStd();}
 function saveStd(list){setJSON(LS_STD,{items:list});}
 function normalizeRubric(r){
@@ -821,22 +836,52 @@ function normalizeRubric(r){
   if(!out.versions.length)out.versions=[{id:uid(),n:1,date:Date.now(),note:'Original version'}];
   out.version=out.versions.some(function(v){return v.id===r.version;})?String(r.version):out.versions[out.versions.length-1].id;
   out.code=String(r.code||'').slice(0,20);out.section=String(r.section||'');out.aliases=(Array.isArray(r.aliases)?r.aliases:[]).map(String).slice(0,30);out.instructions=scrub(r.instructions||'').text.slice(0,20000);out.material=scrub(r.material||'').text.slice(0,20000);
+  out.mastery=normMastery(r.mastery);out.regrade=normRegrade(r.regrade);out.bonus=normBonus(r.bonus);
   return out;
 }
 
 var state={rubric:null,subs:[],curId:null,view:'home',filter:'all',selCrit:null,step:0,anTerm:'all',anRepeats:[],stdOpen:false,anVer:'all',annTerm:'',anSec:'all',annSec:'all'};
 function R(){return state.rubric;}
 function crit(id){return R().criteria.filter(function(c){return c.id===id;})[0];}
-function bankOf(cid){return (cid==='_general'||cid==='_overall')?R().generalBank:crit(cid).bank;}
+function bankOf(cid){return cid==='_bonus'?R().bonus.bank:(cid==='_general'||cid==='_overall')?R().generalBank:crit(cid).bank;}
+function bonusOn(){return !!(R().bonus&&R().bonus.enabled);}
+function bonusLv(s){return bonusOn()?R().bonus.levels.filter(function(x){return x.id===s.bonus;})[0]||null:null;}
+function minMet(s,mx){if(isM())return !!(mx&&mx.earned);var C=R().criteria;if(!C.length)return false;return C.every(function(c){var l=lvOf(c,s);if(!l)return false;var lo=Math.min.apply(null,c.levels.map(function(x){return num(x.points);}));return num(l.points)>lo;});}
 function maxPts(c){return c.levels.reduce(function(m,l){return Math.max(m,num(l.points));},0);}
 function lvOf(c,s){var id=s.level[c.id];return c.levels.filter(function(l){return l.id===id;})[0]||null;}
 function sub(id){return state.subs.filter(function(s){return s.id===id;})[0];}
 function cur(){return sub(state.curId);}
+function isM(){var m=R().mastery;return !!(m&&m.enabled);}
+function CRS(){return isM()?[]:R().criteria;}
+function tiersAsc(){return R().mastery.tiers.slice().sort(function(a,b){return a.pct-b.pct;});}
+function liveReqs(t){return t.reqs.filter(function(q){return q.text.trim();});}
+function cumReqs(t){var out=[];tiersAsc().forEach(function(x){if(x.pct<=t.pct)out=out.concat(liveReqs(x));});return out;}
+function capOf(s){return s.regradeOf&&R().regrade.enabled?R().regrade.cap:null;}
+function mResult(s){var T=tiersAsc(),E=T.filter(function(x){return x.id===s.elect;})[0]||null,earned=null,up=[],ok=true;
+  if(E){T.forEach(function(x){if(x.pct<=E.pct)liveReqs(x).forEach(function(q){up.push({t:x,q:q});});});
+    for(var i=0;i<T.length&&T[i].pct<=E.pct;i++){var all=liveReqs(T[i]).every(function(q){return s.met[q.id]==='y';});if(!all){ok=false;break;}earned=T[i];}}
+  return {E:E,earned:earned,up:up,missed:up.filter(function(x){return s.met[x.q.id]==='n';}),open:up.filter(function(x){return !s.met[x.q.id];}),total:1+up.length,judged:(E?1:0)+up.filter(function(x){return s.met[x.q.id];}).length};}
 function lateOn(){var L=R().late;return !!(L&&L.enabled&&L.tiers.length);}
 function lateTier(s){if(!lateOn())return null;var T=R().late.tiers;return T.filter(function(x){return x.id===s.late;})[0]||T[0];}
-function score(s){var raw=0,max=0,done=0;R().criteria.forEach(function(c){max+=maxPts(c);var l=lvOf(c,s);if(l){raw+=num(l.points);done++;}});
+function score(s){var raw=0,max=0,done=0,total,mx=null,cap=capOf(s),capped=false;
+  if(isM()){var m=R().mastery;mx=mResult(s);var p=mx.E?(mx.earned?mx.earned.pct:m.none):0;if(cap!=null&&p>cap){p=cap;capped=true;}max=m.pts;raw=Math.round(m.pts*p)/100;done=mx.judged;total=mx.total;}
+  else{R().criteria.forEach(function(c){max+=maxPts(c);var l=lvOf(c,s);if(l){raw+=num(l.points);done++;}});total=R().criteria.length;
+    if(cap!=null&&max&&raw>max*cap/100){raw=Math.round(max*cap)/100;capped=true;}}
+  var bl=bonusLv(s),bonus=0,bonusBlocked=false;
+  if(bl&&num(bl.pct)>0&&max){if(minMet(s,mx)){var add=max*num(bl.pct)/100;bonus=Math.round(add/max*1000)/10;raw=Math.round((raw+add)*100)/100;}else bonusBlocked=true;}
   var t=lateTier(s),ded=t?num(t.pct):0,got=Math.round(raw*(100-ded))/100;
-  return {got:got,raw:raw,max:max,done:done,total:R().criteria.length,pct:max?Math.round(got/max*1000)/10:0,tier:t,ded:ded};}
+  return {got:got,raw:raw,max:max,done:done,total:total,pct:max?Math.round(got/max*1000)/10:0,tier:t,ded:ded,m:mx,cap:cap,capped:capped,bonus:bonus,bonusLv:bl,bonusBlocked:bonusBlocked};}
+function mSummary(s){var x=mResult(s),sc=score(s);if(!x.E)return 'Choose the level the student chose.';
+  var t='Chose '+x.E.label+'. ';if(x.open.length)t+=plural(x.open.length,'requirement')+' still to judge. ';
+  t+=x.earned?(x.earned.id===x.E.id?'Earned '+x.earned.label+': every requirement met.':'Earned '+x.earned.label+', the highest level with every requirement met.'):'No level fully met, so the score is '+R().mastery.none+'%.';
+  if(sc.capped)t+=' Regrade cap applied: '+sc.cap+'%.';return t;}
+function canRegrade(o){return R().regrade.enabled&&o&&!o.regradeOf&&!state.subs.some(function(x){return x.regradeOf===o.id;});}
+function regradeOfSub(o){return state.subs.filter(function(x){return x.regradeOf===o.id;})[0]||null;}
+function newRegrade(o){
+  if(!R().regrade.enabled){announce('Regrades are turned off for this assignment. Turn them on under Regrade policy in the rubric builder.');return null;}
+  if(o.regradeOf){announce('That record is already a regrade.');return null;}
+  if(regradeOfSub(o)){announce(o.label+' already used the one regrade.');return null;}
+  var s=newSub();s.label=o.label;s.regradeOf=o.id;s.term=o.term;s.section=o.section;s.late='';saveRecs();return s;}
 
 /* records */
 var recTimer=null;
@@ -847,7 +892,8 @@ function normalizeRec(s){
   function obj(v,f){var o={};if(v&&typeof v==='object')Object.keys(v).forEach(function(k){o[k]=f(v[k]);});return o;}
   return {id:String(s.id||uid()),label:labelProblem(s.label)?genAnon():String(s.label).trim(),term:String(s.term||'Unspecified term'),created:num(s.created)||Date.now(),
     level:obj(s.level,String),checks:obj(s.checks,arr),comments:obj(s.comments,arr),notes:obj(s.notes,function(v){return scrub(v).text;}),
-    section:String(s.section||'Class 1'),overallComments:arr(s.overallComments),overall:scrub(s.overall).text,late:String(s.late||''),ver:String(s.ver||''),secs:num(s.secs),ai:s.ai&&typeof s.ai==='object'?s.ai:null,status:s.status==='complete'?'complete':'draft'};
+    section:String(s.section||'Class 1'),overallComments:arr(s.overallComments),overall:scrub(s.overall).text,late:String(s.late||''),ver:String(s.ver||''),secs:num(s.secs),ai:s.ai&&typeof s.ai==='object'?s.ai:null,status:s.status==='complete'?'complete':'draft',
+    elect:String(s.elect||''),met:obj(s.met,function(v){return v==='y'||v==='n'?v:'';}),regradeOf:String(s.regradeOf||''),bonus:String(s.bonus||'')};
 }
 function recordsFor(rid){var a=loadRecs()[rid];return Array.isArray(a)?a.map(normalizeRec).map(function(s){if(!verById(s.ver))s.ver=R().versions[0].id;return s;}):[];}
 function verById(id){return R().versions.filter(function(v){return v.id===id;})[0]||null;}
@@ -866,7 +912,7 @@ function classLabel(){return termOf()+' · '+secOf();}
 function termSubs(){var t=termOf(),c=secOf();return state.subs.filter(function(s){return s.term===t&&s.section===c;});}
 function sections(){var seen={},out=[];state.subs.forEach(function(s){if(!seen[s.section]){seen[s.section]=1;out.push(s.section);}});return out;}
 function terms(){var seen={},out=[];state.subs.slice().sort(function(a,b){return a.created-b.created;}).forEach(function(s){if(!seen[s.term]){seen[s.term]=1;out.push(s.term);}});return out;}
-function newSub(){var s={id:uid(),label:genAnon(),term:termOf(),section:secOf(),created:Date.now(),level:{},checks:{},comments:{},notes:{},overallComments:[],overall:'',late:'',ver:R().version,secs:0,ai:null,status:'draft'};state.subs.push(s);saveRecs();return s;}
+function newSub(){var s={id:uid(),label:genAnon(),term:termOf(),section:secOf(),created:Date.now(),level:{},checks:{},comments:{},notes:{},overallComments:[],overall:'',late:'',ver:R().version,secs:0,ai:null,status:'draft',elect:'',met:{},regradeOf:'',bonus:''};state.subs.push(s);saveRecs();return s;}
 
 /* rubric save */
 var saveTimer=null;
@@ -881,13 +927,14 @@ function saveNow(){
 /* ================= Shared computations ================= */
 function bankUses(cid,bid){var n=0;state.subs.forEach(function(s){var a=(cid==='_overall'||cid==='_general')?s.overallComments:(s.comments[cid]||[]);if(a.indexOf(bid)>-1)n++;});return n;}
 function levelCounts(cid,exceptId){var m={};termSubs().forEach(function(s){if(s.id===exceptId)return;var l=s.level[cid];if(l)m[l]=(m[l]||0)+1;});return m;}
-function aiDiffs(s){if(!s.ai||!s.ai.criteria)return null;var n=0,d=0;R().criteria.forEach(function(c){var a=s.ai.criteria[c.id];if(a&&a.levelId&&s.level[c.id]){n++;if(a.levelId!==s.level[c.id])d++;}});return {n:n,d:d};}
+function aiDiffs(s){if(isM()){if(!s.ai||!s.ai.reqs)return null;var n2=0,d2=0;Object.keys(s.ai.reqs).forEach(function(id){var v=s.met[id];if(v){n2++;if((v==='y')!==!!s.ai.reqs[id].met)d2++;}});return {n:n2,d:d2};}
+  if(!s.ai||!s.ai.criteria)return null;var n=0,d=0;R().criteria.forEach(function(c){var a=s.ai.criteria[c.id];if(a&&a.levelId&&s.level[c.id]){n++;if(a.levelId!==s.level[c.id])d++;}});return {n:n,d:d};}
 function agreement(list){var n=0,d=0;list.forEach(function(s){var x=aiDiffs(s);if(x){n+=x.n;d+=x.d;}});return n?Math.round((n-d)/n*100):null;}
 function avgPct(list){return list.length?Math.round(list.reduce(function(a,s){return a+score(s).pct;},0)/list.length):null;}
 function critPct(c,list){var sc=list.filter(function(s){return lvOf(c,s);});if(!sc.length||!maxPts(c))return null;return Math.round(sc.reduce(function(a,s){return a+num(lvOf(c,s).points);},0)/sc.length/maxPts(c)*100);}
 function computeFlags(subs){
   var flags=[];
-  R().criteria.forEach(function(c){
+  CRS().forEach(function(c){
     var scored=subs.filter(function(s){return lvOf(c,s);});
     c.bank.forEach(function(b){
       var used=scored.filter(function(s){return (s.comments[c.id]||[]).indexOf(b.id)>-1;}),lv={};
@@ -1094,12 +1141,13 @@ function renderSubs(){
   if(!list.length){el.innerHTML='<p class="empty">'+(termSubs().length?'Nothing in this view.':'No submissions for '+esc(termOf())+' yet. Print an ID key sheet below, or grade a new submission.')+'</p>';return;}
   el.innerHTML='<div class="table-wrap"><table><caption class="sr-only">Submissions for '+esc(termOf())+'</caption><thead><tr><th scope="col">Anonymous ID</th><th scope="col">Status</th><th scope="col">Progress</th><th scope="col">Score</th><th scope="col">Claude</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead><tbody>'+
   list.slice().reverse().map(function(s){var sc=score(s),ad=aiDiffs(s),p=sc.total?Math.round(sc.done/sc.total*100):0;
-    return '<tr><th scope="row" class="mono">'+esc(s.label)+'</th><td>'+badge(s)+'</td>'+
+    return '<tr><th scope="row" class="mono">'+esc(s.label)+(s.regradeOf?'<span class="tagline">Regrade</span>':'')+'</th><td>'+badge(s)+'</td>'+
     '<td><span class="meter" aria-hidden="true"><span style="width:'+p+'%"></span></span> <span style="font-size:.85rem">'+sc.done+'/'+sc.total+'</span></td>'+
     '<td>'+(sc.done?fmt(sc.got)+' / '+fmt(sc.max)+' <span class="muted">('+sc.pct+'%)</span>':'<span class="muted">None</span>')+'</td>'+
     '<td style="font-size:.85rem">'+(ad&&ad.n?(ad.d?'Differs on '+ad.d:'Agrees'):'<span class="muted">Not used</span>')+'</td>'+
     '<td><div class="row" style="justify-content:flex-end"><button type="button" class="btn sm'+(sc.done?'':' primary')+'" data-sact="edit" data-sid="'+s.id+'" aria-label="'+(sc.done?'Edit ':'Grade ')+esc(s.label)+'">'+(sc.done?'Edit':'Grade')+'</button>'+
     '<button type="button" class="btn sm ghost" data-sact="sheet" data-sid="'+s.id+'" aria-label="Sheet for '+esc(s.label)+'">Sheet</button>'+
+    (s.status==='complete'&&!s.regradeOf&&R().regrade.enabled?(regradeOfSub(s)?'<span class="muted" style="font-size:.85rem;align-self:center">Regrade used</span>':'<button type="button" class="btn sm ghost" data-sact="regrade" data-sid="'+s.id+'" aria-label="Start regrade for '+esc(s.label)+'">Regrade</button>'):'')+
     '<button type="button" class="btn sm ghost" data-sact="del" data-sid="'+s.id+'" aria-label="Remove '+esc(s.label)+'">'+ic('trash')+'</button></div></td></tr>';}).join('')+
   '</tbody></table></div>';
 }
@@ -1113,7 +1161,9 @@ function itemRows(list,kind,cid,word){
 }
 function renderRubric(){
   var r=R(),total=r.criteria.reduce(function(a,c){return a+maxPts(c);},0);
-  if(state.selCrit!=='_general'&&state.selCrit!=='_late'&&!crit(state.selCrit))state.selCrit=r.criteria[0]?r.criteria[0].id:'_general';
+  if(isM()&&crit(state.selCrit))state.selCrit='_mastery';
+  if(!isM()&&state.selCrit==='_mastery')state.selCrit=null;
+  if(['_general','_late','_mastery','_regrade','_bonus'].indexOf(state.selCrit)<0&&!crit(state.selCrit))state.selCrit=isM()?'_mastery':r.criteria[0]?r.criteria[0].id:'_general';
   var sel=state.selCrit;
   var cv=verById(r.version)||r.versions[r.versions.length-1];
   var h='<div class="card ivory"><div class="card-head" style="margin-bottom:.4rem"><div><h2 style="font-size:1.05rem">Assignment version '+cv.n+'</h2><p class="hint" style="margin:0">In use since '+esc(verDate(cv,true))+'. New grades are recorded under this version so you can compare before and after changes.</p></div></div>'+
@@ -1123,19 +1173,27 @@ function renderRubric(){
     '<div class="field"><label for="rCode">Short code</label><input type="text" id="rCode" data-r="code" maxlength="20" value="'+esc(r.code||'')+'"></div>'+
     '<div class="field"><label for="rCourse">Course (shown on student sheets)</label><input type="text" id="rCourse" data-r="course" list="courseList" value="'+esc(r.course)+'">'+
     '<datalist id="courseList"><option value="BIO 004 · Human Anatomy"></option><option value="BIO 431 · Human Anatomy and Physiology"></option><option value="BIO 304 · Human Anatomy and Physiology"></option></datalist></div>'+
-    '<p class="total-pts" id="totalPts">'+fmt(total)+' points possible</p></div>'+
+    '<p class="total-pts" id="totalPts">'+fmt(isM()?r.mastery.pts:total)+' points possible</p>'+
+    '<fieldset class="mode-pick" style="grid-column:1/-1;margin:0"><legend>Grading type</legend><div class="chips">'+
+    '<label class="chip" for="modeP"><input type="radio" name="gmode" id="modeP" value="points" data-mode="1"'+(isM()?'':' checked')+'><span class="box">'+ic('check')+'</span>Points rubric (levels for each criterion)</label>'+
+    '<label class="chip" for="modeM"><input type="radio" name="gmode" id="modeM" value="mastery" data-mode="1"'+(isM()?' checked':'')+'><span class="box">'+ic('check')+'</span>Mastery grading (students choose 70, 80, 90, or 100%)</label></div></fieldset></div>'+
     '<details class="box" id="instrBox" style="margin:-.4rem 0 1rem"><summary>Instructions given to students <span class="muted" style="font-weight:400">('+(r.instructions?plural(r.instructions.split(/\s+/).filter(Boolean).length,'word'):'none yet, paste them here')+')</span></summary><div class="in">'+
     '<label for="rInstr" class="hint" style="display:block;margin-top:0">Paste or type the instructions exactly as students see them. Claude reads them when it scores, so it can check "Following directions" too. Saved on this device only.</label>'+
     '<textarea id="rInstr" data-r="instructions" rows="9" maxlength="20000">'+esc(r.instructions||'')+'</textarea>'+
     (r.instructions?'<button type="button" class="btn sm ghost" data-act="clear-instr" style="margin-top:.5rem">'+ic('trash')+'Remove instructions</button>':'')+'</div></details>';
-  h+='<div class="work"><nav class="crit-list" aria-label="Criteria"><ul>'+
+  var mN=0;r.mastery.tiers.forEach(function(x){mN+=liveReqs(x).length;});
+  if(isM())h+='<div class="work"><nav class="crit-list" aria-label="Criteria"><button type="button" class="crit-item" data-sel="_mastery"'+(sel==='_mastery'?' aria-current="true"':'')+'><span class="ci-name">Mastery levels</span><span class="ci-meta">'+plural(r.mastery.tiers.length,'level')+' · '+plural(mN,'requirement')+'</span></button>'+
+    (r.criteria.length?'<p class="hint" style="padding:0 .3rem">Your points criteria are kept but not used while Mastery grading is on.</p>':'')+'<hr>';
+  else h+='<div class="work"><nav class="crit-list" aria-label="Criteria"><ul>'+
     r.criteria.map(function(c,i){return '<li><button type="button" class="crit-item" data-sel="'+c.id+'"'+(sel===c.id?' aria-current="true"':'')+'><span class="ci-name">'+(i+1)+'. <span class="cn">'+esc(c.name||'Untitled')+'</span></span><span class="ci-meta">'+fmt(maxPts(c))+' pts · '+plural(c.levels.length,'level')+'</span></button></li>';}).join('')+
     '</ul><button type="button" class="btn sm ghost" data-act="add-crit" style="width:100%;margin-top:.3rem">'+ic('plus')+'Add blank criterion</button>'+
     '<button type="button" class="btn sm ghost" data-act="std-open" aria-expanded="'+(state.stdOpen?'true':'false')+'" aria-controls="stdPanel" style="width:100%;margin-top:.2rem">'+ic('rubric')+'Add standard criterion</button>'+
-    '<div id="stdPanel"'+(state.stdOpen?'':' hidden')+' style="padding:.4rem .2rem 0">'+stdPanel()+'</div><hr>'+
+    '<div id="stdPanel"'+(state.stdOpen?'':' hidden')+' style="padding:.4rem .2rem 0">'+stdPanel()+'</div><hr>';
+  h+='<button type="button" class="crit-item" data-sel="_bonus"'+(sel==='_bonus'?' aria-current="true"':'')+'><span class="ci-name">Authenticity bonus</span><span class="ci-meta">'+(r.bonus.enabled?'On · only you see it':'Off')+'</span></button>'+
+    '<button type="button" class="crit-item" data-sel="_regrade"'+(sel==='_regrade'?' aria-current="true"':'')+'><span class="ci-name">Regrade policy</span><span class="ci-meta">'+(r.regrade.enabled?'One allowed · cap '+r.regrade.cap+'%':'Off')+'</span></button>'+
     '<button type="button" class="crit-item" data-sel="_late"'+(sel==='_late'?' aria-current="true"':'')+'><span class="ci-name">Late policy</span><span class="ci-meta">'+(lateOn()?'On · '+plural(r.late.tiers.length,'tier'):'Off')+'</span></button>'+
     '<button type="button" class="crit-item" data-sel="_general"'+(sel==='_general'?' aria-current="true"':'')+'><span class="ci-name">General comments</span><span class="ci-meta">'+plural(r.generalBank.length,'comment')+'</span></button></nav>';
-  h+='<div class="card" data-cid="'+sel+'" id="critEd">'+(sel==='_general'?generalEd():sel==='_late'?lateEd():critEd(crit(sel),r.criteria.indexOf(crit(sel)),r.criteria.length))+'</div></div>';
+  h+='<div class="card" data-cid="'+sel+'" id="critEd">'+(sel==='_general'?generalEd():sel==='_late'?lateEd():sel==='_mastery'?masteryEd():sel==='_regrade'?regradeEd():sel==='_bonus'?bonusEd():critEd(crit(sel),r.criteria.indexOf(crit(sel)),r.criteria.length))+'</div></div>';
   $('#rubricWork').innerHTML=h;
 }
 function critEd(c,i,n){
@@ -1170,17 +1228,57 @@ function lateEd(){var L=R().late;
       '<div class="field"><label for="'+q+'-p">Deduction (%)</label><input type="number" id="'+q+'-p" data-l="pct" min="0" max="100" step="1" inputmode="numeric" value="'+esc(x.pct)+'"></div>'+
       '<button type="button" class="btn sm ghost" data-act="del-tier" aria-label="Remove tier '+(j+1)+'"'+(L.tiers.length<2?' disabled':'')+'>'+ic('trash')+'</button></div>';}).join('')+
     '<div class="row"><button type="button" class="btn sm" data-act="add-tier">'+ic('plus')+'Add tier</button><button type="button" class="btn sm ghost" data-act="reset-late">Reset to default</button></div></div>';}
+function masteryEd(){var m=R().mastery,T=tiersAsc();
+  return '<div class="ed-head"><div><p class="eyebrow">Mastery grading</p><h2 id="edH" tabindex="-1">Mastery levels</h2></div></div>'+
+    '<p class="hint">Students choose the grade they are working toward. Each level includes every requirement of the levels below it. When you grade, you mark each requirement met or not met, and the student earns the highest level where everything up to that level is met.</p>'+
+    '<div class="row" style="gap:1rem;align-items:flex-end;margin-bottom:.5rem"><div class="field" style="width:170px;margin:0"><label for="m-pts">Points possible</label><input type="number" id="m-pts" data-m="pts" min="1" inputmode="numeric" value="'+m.pts+'"></div>'+
+    '<div class="field" style="width:260px;margin:0"><label for="m-none">Grade if no level is fully met (%)</label><input type="number" id="m-none" data-m="none" min="0" max="100" inputmode="numeric" value="'+m.none+'"></div></div>'+
+    T.map(function(tt,j){var q='mt-'+tt.id;return '<div class="sec" data-mt="'+tt.id+'"><div class="lv-row" style="grid-template-columns:minmax(140px,2fr) 110px auto">'+
+      '<div class="field"><label for="'+q+'-l">Level name</label><input type="text" id="'+q+'-l" data-m="tlabel" value="'+esc(tt.label)+'"></div>'+
+      '<div class="field"><label for="'+q+'-p">Grade (%)</label><input type="number" id="'+q+'-p" data-m="tpct" min="0" max="100" inputmode="numeric" value="'+tt.pct+'"></div>'+
+      '<button type="button" class="btn sm ghost" data-act="m-del-tier" aria-label="Remove level '+esc(tt.label||(j+1))+'"'+(T.length<2?' disabled':'')+'>'+ic('trash')+'</button></div>'+
+      '<p class="hint" style="margin:.2rem 0 .5rem">'+(j?'Includes every requirement of the levels above. ':'')+'Requirements added at '+esc(tt.label||'this level')+':</p>'+
+      tt.reqs.map(function(rq,k){var id='mr-'+rq.id;return '<div class="item-row" data-mr="'+rq.id+'"><div class="field"><label for="'+id+'">Requirement '+(k+1)+'</label><textarea id="'+id+'" rows="2" data-m="req">'+esc(rq.text)+'</textarea></div>'+
+        '<button type="button" class="btn sm ghost" data-act="m-del-req" aria-label="Remove requirement '+(k+1)+' from '+esc(tt.label)+'">'+ic('trash')+'</button></div>';}).join('')+
+      '<button type="button" class="btn sm" data-act="m-add-req">'+ic('plus')+'Add requirement</button></div>';}).join('')+
+    '<button type="button" class="btn sm" data-act="m-add-tier" style="margin-top:.5rem">'+ic('plus')+'Add level</button>';}
+function bonusEd(){var B=R().bonus;
+  return '<div class="ed-head"><div><p class="eyebrow">Instructor only · not in the student rubric</p><h2 id="edH" tabindex="-1">Authenticity bonus</h2></div></div>'+
+    '<label class="chip" for="bnOn"><input type="checkbox" id="bnOn" data-bn="on"'+(B.enabled?' checked':'')+'><span class="box">'+ic('check')+'</span>Use an authenticity bonus for this assignment</label>'+
+    '<p class="hint" style="margin-top:.6rem">For answers that are more than just correct: the student\'s own examples, clinical application, connections, original drawings, or reasoning beyond the textbook. It is bonus only and applies only after the minimum requirements are met. It is added on top of the earned grade, so a 90% can become 91% and a 100% can become 101%, including on a regrade. Students see it only as a bonus line with your comments.</p>'+
+    '<div class="sec"><div class="sec-head"><h3>Bonus levels</h3><p class="hint">Percent of the total points added.</p></div>'+
+    B.levels.map(function(x,j){var q='bn-'+x.id;return '<div class="lv-row" data-bid="'+x.id+'" style="grid-template-columns:minmax(160px,2fr) 120px auto">'+
+      '<div class="field"><label for="'+q+'-l">Level '+(j+1)+'</label><input type="text" id="'+q+'-l" data-bn="label" value="'+esc(x.label)+'"></div>'+
+      '<div class="field"><label for="'+q+'-p">Bonus (%)</label><input type="number" id="'+q+'-p" data-bn="pct" min="0" max="100" step="0.5" inputmode="decimal" value="'+esc(x.pct)+'"></div>'+
+      '<button type="button" class="btn sm ghost" data-act="bn-del" aria-label="Remove bonus level '+(j+1)+'"'+(B.levels.length<2?' disabled':'')+'>'+ic('trash')+'</button></div>';}).join('')+
+    '<button type="button" class="btn sm" data-act="bn-add">'+ic('plus')+'Add bonus level</button></div>'+
+    '<div class="sec"><div class="sec-head"><h3>Authenticity comments</h3><p class="hint">Positive comments that reinforce original thinking.</p></div>'+itemRows(B.bank,'bank','_bonus','Comment')+'<button type="button" class="btn sm" data-act="add-bank">'+ic('plus')+'Add comment</button></div>';}
+function regradeEd(){var g=R().regrade;
+  return '<div class="ed-head"><div><p class="eyebrow">One per student</p><h2 id="edH" tabindex="-1">Regrade policy</h2></div></div>'+
+    '<label class="chip" for="rgOn"><input type="checkbox" id="rgOn" data-rg="on"'+(g.enabled?' checked':'')+'><span class="box">'+ic('check')+'</span>Allow one regrade per student</label>'+
+    '<div class="field" style="width:240px;margin-top:.8rem"><label for="rgCap">Highest grade on a regrade (%)</label><input type="number" id="rgCap" data-rg="cap" min="0" max="100" inputmode="numeric" value="'+g.cap+'"></div>'+
+    '<p class="hint">Start a regrade from the Submissions list or the review step with "Regrade". It is saved as a second record under the same anonymous ID, so both attempts are kept. Each student gets only one. In Mastery grading, levels above the cap cannot be chosen on a regrade.</p>';}
 function generalEd(){return '<div class="ed-head"><div><p class="eyebrow">All submissions</p><h2 id="edH" tabindex="-1">General comments</h2></div></div><p class="hint">Comments for the overall section of every grading sheet.</p>'+itemRows(R().generalBank,'bank','_general','Comment')+'<button type="button" class="btn sm" data-act="add-bank">'+ic('plus')+'Add comment</button>';}
 function updTotals(){var t=R().criteria.reduce(function(a,c){return a+maxPts(c);},0);var el=$('#totalPts');if(el)el.textContent=fmt(t)+' points possible';}
 
 function onRubInput(e){
   var t=e.target,r=R();
   if(t.dataset.r){r[t.dataset.r]=t.value;queueSave();return;}
+  if(t.dataset.mode){r.mastery.enabled=t.value==='mastery';state.selCrit=null;saveNow();renderRubric();var mf=$(r.mastery.enabled?'#modeM':'#modeP');if(mf)mf.focus();announce(r.mastery.enabled?'Mastery grading on. Write the requirements for each level.':'Points rubric on.');return;}
+  if(t.dataset.bn){var B=r.bonus,bk2=t.dataset.bn;if(bk2==='on'){B.enabled=t.checked;var bm=$('.crit-item[data-sel="_bonus"] .ci-meta');if(bm)bm.textContent=B.enabled?'On · only you see it':'Off';}
+    else{var bw=t.closest('[data-bid]'),bx=B.levels.filter(function(x){return x.id===bw.dataset.bid;})[0];if(bk2==='label')bx.label=t.value;else bx.pct=Math.max(0,Math.min(100,num(t.value)));}queueSave();return;}
+  if(t.dataset.rg){if(t.dataset.rg==='on')r.regrade.enabled=t.checked;else r.regrade.cap=Math.max(0,Math.min(100,num(t.value)));var rgm=$('.crit-item[data-sel="_regrade"] .ci-meta');if(rgm)rgm.textContent=r.regrade.enabled?'One allowed · cap '+r.regrade.cap+'%':'Off';queueSave();return;}
+  if(t.dataset.m){var m=r.mastery,mk=t.dataset.m,tw=t.closest('[data-mt]'),tt=tw?m.tiers.filter(function(x){return x.id===tw.dataset.mt;})[0]:null;
+    if(mk==='pts'){m.pts=Math.max(1,num(t.value)||1);var tp=$('#totalPts');if(tp)tp.textContent=fmt(m.pts)+' points possible';}
+    else if(mk==='none')m.none=Math.max(0,Math.min(100,num(t.value)));
+    else if(mk==='tlabel')tt.label=t.value;else if(mk==='tpct')tt.pct=Math.max(0,Math.min(100,num(t.value)));
+    else if(mk==='req'){var rid=t.closest('[data-mr]').dataset.mr,rq=tt.reqs.filter(function(x){return x.id===rid;})[0];if(rq)rq.text=t.value;}
+    queueSave();return;}
   var card=t.closest('[data-cid]');if(!card||!(t.dataset.f||t.dataset.l))return;
   if(card&&card.dataset.cid==='_late'&&t.dataset.l){var L=R().late,lk=t.dataset.l;
     if(lk==='on')L.enabled=t.checked;else{var tid=t.closest('[data-tid]').dataset.tid,ti=L.tiers.filter(function(x){return x.id===tid;})[0];if(lk==='label')ti.label=t.value;else ti.pct=Math.max(0,Math.min(100,num(t.value)));}
     var meta=$('.crit-item[data-sel="_late"] .ci-meta');if(meta)meta.textContent=lateOn()?'On · '+plural(L.tiers.length,'tier'):'Off';queueSave();return;}
-  var cid=card.dataset.cid,f=t.dataset.f,c=cid==='_general'?null:crit(cid);
+  var cid=card.dataset.cid,f=t.dataset.f,c=(cid==='_general'||cid==='_bonus')?null:crit(cid);
   if(f==='name'){c.name=t.value;$('#edH').textContent=t.value||'Untitled';var li=$('.crit-item[data-sel="'+cid+'"] .cn');if(li)li.textContent=t.value||'Untitled';}
   else if(f==='desc')c.desc=t.value;
   else if(f.indexOf('lv-')===0){var lid=t.closest('[data-lid]').dataset.lid,lv=c.levels.filter(function(l){return l.id===lid;})[0];
@@ -1206,6 +1304,12 @@ function onRubClick(e){
   else if(act==='add-tier'){var nt={id:uid(),label:'',pct:0};r.late.tiers.push(nt);focus='#lt-'+nt.id+'-l';}
   else if(act==='del-tier'){var tid=b.closest('[data-tid]').dataset.tid;if(r.late.tiers.length<2)return;r.late.tiers=r.late.tiers.filter(function(x){return x.id!==tid;});focus='[data-act=add-tier]';announce('Tier removed.');}
   else if(act==='reset-late'){if(!confirm('Reset the late policy to: on time full credit, up to 24 hours late minus 50%, more than 24 hours late no credit?'))return;r.late=defaultLate();focus='#lateOn';announce('Late policy reset.');}
+  else if(act==='bn-add'){var nb2={id:uid(),label:'',pct:1};r.bonus.levels.push(nb2);focus='#bn-'+nb2.id+'-l';}
+  else if(act==='bn-del'){var bid2=b.closest('[data-bid]').dataset.bid;if(r.bonus.levels.length<2)return;r.bonus.levels=r.bonus.levels.filter(function(x){return x.id!==bid2;});focus='[data-act=bn-add]';announce('Bonus level removed.');}
+  else if(act==='m-add-tier'){var nt2={id:uid(),label:'',pct:0,reqs:[]};r.mastery.tiers.push(nt2);focus='#mt-'+nt2.id+'-l';}
+  else if(act==='m-del-tier'){var tid2=b.closest('[data-mt]').dataset.mt,tq=r.mastery.tiers.filter(function(x){return x.id===tid2;})[0];if(r.mastery.tiers.length<2)return;if(liveReqs(tq).length&&!confirm('Remove the '+(tq.label||'unnamed')+' level and its requirements?'))return;r.mastery.tiers=r.mastery.tiers.filter(function(x){return x!==tq;});focus='[data-act=m-add-tier]';announce('Level removed.');}
+  else if(act==='m-add-req'){var tw2=b.closest('[data-mt]'),tq2=r.mastery.tiers.filter(function(x){return x.id===tw2.dataset.mt;})[0],nr=mkItem('');tq2.reqs.push(nr);focus='#mr-'+nr.id;}
+  else if(act==='m-del-req'){var tw3=b.closest('[data-mt]'),tq3=r.mastery.tiers.filter(function(x){return x.id===tw3.dataset.mt;})[0],rid3=b.closest('[data-mr]').dataset.mr;tq3.reqs=tq3.reqs.filter(function(x){return x.id!==rid3;});focus='[data-mt="'+tq3.id+'"] [data-act=m-add-req]';announce('Requirement removed.');}
   else if(act==='add-crit'){var nc=mkCrit('','',stdLevels(),[],[]);r.criteria.push(nc);state.selCrit=nc.id;focus='#e'+nc.id+'-name';announce('Criterion added.');}
   else if(act==='del-crit'){if(!confirm('Remove "'+(c.name||'this criterion')+'" and its comment bank?'))return;r.criteria.splice(idx,1);state.selCrit=null;focus='[data-act=add-crit]';announce('Criterion removed.');}
   else if(act==='crit-up'&&idx>0){r.criteria.splice(idx-1,0,r.criteria.splice(idx,1)[0]);focus='[data-act=crit-up]';announce('Moved up.');}
@@ -1222,22 +1326,24 @@ function onRubClick(e){
 }
 
 /* ================= Grading mode ================= */
-function steps(){return R().criteria.map(function(c){return c.id;}).concat(['_overall','_review']);}
+function steps(){return (isM()?['_mastery']:R().criteria.map(function(c){return c.id;})).concat(bonusOn()?['_bonus']:[]).concat(['_overall','_review']);}
+function missingParts(s){if(isM()){var x=mResult(s);return !x.E?['the level the student chose']:x.open.map(function(o){return o.q.text;});}return R().criteria.filter(function(c){return !lvOf(c,s);}).map(function(c){return c.name||'Untitled';});}
+function missStep(s){if(isM())return 0;var c=R().criteria.filter(function(c){return !lvOf(c,s);})[0];return c?R().criteria.indexOf(c):0;}
 var tStart=null;
 function stopT(){var s=cur();if(tStart&&s){s.secs=(s.secs||0)+Math.min((Date.now()-tStart)/1000,1200);saveRecs();}tStart=null;}
 function startT(){tStart=document.hidden?null:Date.now();}
 document.addEventListener('visibilitychange',function(){if(document.hidden)stopT();else if($('#gm').open)startT();});
 function openGM(s,stepKey){
-  if(!R().criteria.length){show('rubric');announce('Add at least one criterion first.');return;}
+  if(!isM()&&!R().criteria.length){show('rubric');announce('Add at least one criterion first.');return;}
   stopT();state.curId=s.id;startT();var st=steps();state.step=stepKey?Math.max(0,st.indexOf(stepKey)):(prefs.across&&state.step<st.length?state.step:firstOpenStep(s));
   $('#gmAlert').textContent='';$('#aiPaste').value='';$('#promptStatus').textContent='';$('#aiStatus').textContent='';
   var d=$('#gm');if(!d.open)d.showModal();
   renderGM();focusStep();
 }
-function firstOpenStep(s){var i=R().criteria.findIndex(function(c){return !lvOf(c,s);});return i<0?R().criteria.length+1:i;}
+function firstOpenStep(s){if(isM())return missingParts(s).length?0:steps().length-1;var i=R().criteria.findIndex(function(c){return !lvOf(c,s);});return i<0?steps().length-1:i;}
 function renderGM(){
   var s=cur(),st=steps();
-  $('#subLabel').value=s.label;$('#gmTitle').textContent='Grading '+s.label;
+  $('#subLabel').value=s.label;$('#gmTitle').textContent='Grading '+s.label+(s.regradeOf?' (regrade)':'');
   updScore();renderQueue();renderStepper();renderStep();renderSide();
   var last=state.step===st.length-1,ac=!!prefs.across;
   $('#gmAcross').setAttribute('aria-pressed',ac?'true':'false');
@@ -1255,18 +1361,19 @@ function renderGM(){
   }
 }
 function openAcross(){
-  if(!R().criteria.length){show('rubric');announce('Add at least one criterion first.');return;}
+  if(!isM()&&!R().criteria.length){show('rubric');announce('Add at least one criterion first.');return;}
   var L=termSubs();if(!L.length){announce('Create anonymous IDs first, then grade across the class.');show('home');var kb=$('[data-go=key]');if(kb)kb.focus();return;}
   prefs.across=true;setJSON(LS_PREF,prefs);
   var st=steps(),si=0,stu=L[0];
-  for(var j=0;j<R().criteria.length;j++){var c=R().criteria[j],o=L.filter(function(x){return !lvOf(c,x);})[0];if(o){si=j;stu=o;break;}if(j===R().criteria.length-1){si=st.length-1;stu=L.filter(function(x){return x.status!=='complete';})[0]||L[0];}}
+  if(isM()){stu=L.filter(function(x){return missingParts(x).length;})[0];if(!stu){si=st.length-1;stu=L.filter(function(x){return x.status!=='complete';})[0]||L[0];}}
+  else for(var j=0;j<R().criteria.length;j++){var c=R().criteria[j],o=L.filter(function(x){return !lvOf(c,x);})[0];if(o){si=j;stu=o;break;}if(j===R().criteria.length-1){si=st.length-1;stu=L.filter(function(x){return x.status!=='complete';})[0]||L[0];}}
   state.step=si;openGM(stu,st[si]);
 }
 function acrossNext(){
   var L=termSubs(),s=cur(),i=L.findIndex(function(x){return x.id===s.id;}),st=steps(),k=st[state.step];
   if(k==='_review'){
-    var miss=R().criteria.filter(function(c){return !lvOf(c,s);});
-    if(miss.length){$('#gmAlert').textContent=s.label+' still needs a level for: '+miss.map(function(c){return c.name||'Untitled';}).join(', ')+'. Go to that question, or move on and come back.';announce($('#gmAlert').textContent);if(L[i+1])switchSub(L[i+1],true);return;}
+    var miss=missingParts(s);
+    if(miss.length){$('#gmAlert').textContent=s.label+' still needs: '+miss.join(', ')+'. Go back to that part, or move on and come back.';announce($('#gmAlert').textContent);if(L[i+1])switchSub(L[i+1],true);return;}
     s.status='complete';saveRecs();
     if(L[i+1]){switchSub(L[i+1],true);$('#gmAlert').textContent=s.label+' marked complete.';}
     else{renderGM();$('#gmAlert').textContent=s.label+' marked complete. That was the last student. '+(L.every(function(x){return x.status==='complete';})?'Everyone is graded.':'Some students are not complete yet. Check the queue.');announce($('#gmAlert').textContent);}
@@ -1285,11 +1392,12 @@ function renderQueue(){
   $('#gmQueue').innerHTML='<h3>'+esc(termOf())+'</h3>'+list.map(function(s){var sc=score(s);
     var meta=s.status==='complete'?ic('check')+'Done':sc.done+'/'+sc.total;
     if(prefs.across){var kk=steps()[state.step],cc=crit(kk);if(cc){var lv=lvOf(cc,s);meta=lv?ic('check')+fmt(lv.points)+' pts':'Open';}else if(kk==='_overall')meta=stepDone(kk,s)?ic('check')+'Done':'Open';}
-    return '<button type="button" class="q-item" data-q="'+s.id+'"'+(s.id===state.curId?' aria-current="true"':'')+'><span class="mono">'+esc(s.label)+'</span><span class="q-meta">'+meta+'</span></button>';}).join('')+
+    if(prefs.across&&steps()[state.step]==='_mastery')meta=stepDone('_mastery',s)?ic('check')+'Done':'Open';
+    return '<button type="button" class="q-item" data-q="'+s.id+'"'+(s.id===state.curId?' aria-current="true"':'')+'><span class="mono">'+esc(s.label)+(s.regradeOf?' (regrade)':'')+'</span><span class="q-meta">'+meta+'</span></button>';}).join('')+
     '<button type="button" class="btn sm" data-q="_new" style="margin-top:.4rem">'+ic('plus')+'New submission</button>';
 }
-function stepName(k){return k==='_overall'?'Overall':k==='_review'?'Review':(crit(k).name||'Untitled');}
-function stepDone(k,s){if(k==='_overall')return !!(s.overall.trim()||s.overallComments.length||s.late);if(k==='_review')return s.status==='complete';return !!lvOf(crit(k),s);}
+function stepName(k){return k==='_bonus'?'Authenticity bonus':k==='_mastery'?'Mastery level':k==='_overall'?'Overall':k==='_review'?'Review':(crit(k).name||'Untitled');}
+function stepDone(k,s){if(k==='_bonus')return !!s.bonus;if(k==='_mastery')return !missingParts(s).length;if(k==='_overall')return !!(s.overall.trim()||s.overallComments.length||s.late);if(k==='_review')return s.status==='complete';return !!lvOf(crit(k),s);}
 function renderStepper(){
   var s=cur();
   $('#gmSteps').innerHTML=steps().map(function(k,i){var dn=stepDone(k,s);
@@ -1300,6 +1408,32 @@ function cnt(n){return n?'<span class="cnt">'+n+'×</span>':'';}
 function renderStep(){
   var s=cur(),k=steps()[state.step],h='';
   if(k==='_review')h=reviewHTML(s);
+  else if(k==='_mastery'){var x=mResult(s),T=tiersAsc(),cap=capOf(s);
+    h='<section data-cid="_mastery" aria-labelledby="stepH"><p class="eyebrow">Mastery grading'+(s.regradeOf?' · Regrade':'')+' · '+fmt(R().mastery.pts)+' points</p><h2 class="step-h" id="stepH" tabindex="-1">Mastery level</h2><p class="step-desc">Choose the level the student chose, then mark each requirement met or not met. Each level includes every requirement of the levels below it.</p>'+
+      (cap!=null?'<div class="flag"><p>This is a regrade. The highest grade possible is '+cap+'%.</p></div>':'')+
+      '<fieldset><legend>Level the student chose</legend><div class="tiles-lv">'+T.map(function(tt,j){var bl=cap!=null&&tt.pct>cap;
+        return '<label class="lv" for="me-'+tt.id+'"><input type="radio" id="me-'+tt.id+'" name="melect" value="'+tt.id+'" data-g="elect"'+(s.elect===tt.id?' checked':'')+(bl?' disabled':'')+'>'+
+        '<span class="lv-top"><span class="lv-name"><span class="sel-mark" aria-hidden="true">'+ic('check')+'</span>'+esc(tt.label||tt.pct+'%')+'</span><span class="lv-pts">'+plural(cumReqs(tt).length,'requirement')+'</span></span>'+
+        (bl?'<span class="lv-desc">Not available on a regrade.</span>':'')+'<span class="lv-foot">'+(j<9?'<kbd aria-hidden="true">'+(j+1)+'</kbd>':'')+'</span></label>';}).join('')+'</div></fieldset>';
+    if(x.E){T.forEach(function(tt){if(tt.pct>x.E.pct)return;var rq=liveReqs(tt);if(!rq.length)return;
+      h+='<fieldset><legend>'+esc(tt.label)+' requirements</legend>'+rq.map(function(q){var v=s.met[q.id]||'',a=s.ai&&s.ai.reqs&&s.ai.reqs[q.id];
+        return '<div class="req-row" role="radiogroup" aria-labelledby="rq-'+q.id+'"><p class="req-t" id="rq-'+q.id+'">'+esc(q.text)+(a?'<span class="tagline">Claude: '+(a.met?'met':'not met')+'</span>':'')+'</p><div class="req-opts">'+
+        '<label class="chip" for="rm-'+q.id+'-y"><input type="radio" id="rm-'+q.id+'-y" name="rm-'+q.id+'" value="y" data-g="met" data-rq="'+q.id+'"'+(v==='y'?' checked':'')+'><span class="box">'+ic('check')+'</span>Met</label>'+
+        '<label class="chip" for="rm-'+q.id+'-n"><input type="radio" id="rm-'+q.id+'-n" name="rm-'+q.id+'" value="n" data-g="met" data-rq="'+q.id+'"'+(v==='n'?' checked':'')+'><span class="box">'+ic('check')+'</span>Not met</label></div></div>';}).join('')+'</fieldset>';});
+      if(!x.up.length)h+='<p class="hint">No requirements are written for this level yet. Add them in the rubric builder under Mastery levels.</p>';}
+    h+='<p class="m-result" id="mRes" aria-live="polite">'+esc(mSummary(s))+'</p>'+
+      '<div class="field"><label for="gm-mnote">Comment on the requirements</label><textarea id="gm-mnote" data-g="note" rows="3">'+esc(s.notes._mastery||'')+'</textarea></div></section>';
+  }
+  else if(k==='_bonus'){var B=R().bonus,bk=B.bank.filter(function(b){return b.text.trim();}),sc0=score(s),mm=minMet(s,sc0.m);
+    h='<section data-cid="_bonus" aria-labelledby="stepH"><p class="eyebrow">Instructor only · not shown in the rubric</p><h2 class="step-h" id="stepH" tabindex="-1">Authenticity bonus</h2>'+
+      '<p class="step-desc">Reward answers that are more than just correct: the student\'s own examples, clinical application, connections across topics, original drawings, or reasoning beyond the textbook. Students see it only as a bonus line when one is given. It is added on top of the earned grade'+(sc0.cap!=null?', even above the regrade cap':'')+', so 90% can become 91%.</p>'+
+      (mm?'':'<div class="flag"><p>'+(isM()?'The student has not fully met the first mastery level':'At least one criterion is at its lowest level')+', so no bonus applies yet. Minimum requirements come first.</p></div>')+
+      '<fieldset><legend>Bonus</legend><div class="tiles-lv">'+B.levels.map(function(x,j){return '<label class="lv" for="bn-'+x.id+'"><input type="radio" id="bn-'+x.id+'" name="bnlv" value="'+x.id+'" data-g="bonuslv"'+(s.bonus===x.id?' checked':'')+'>'+
+        '<span class="lv-top"><span class="lv-name"><span class="sel-mark" aria-hidden="true">'+ic('check')+'</span>'+esc(x.label||'Unnamed')+'</span><span class="lv-pts">'+(num(x.pct)?'+'+fmt(x.pct)+'%':'None')+'</span></span><span class="lv-foot">'+(j<9?'<kbd aria-hidden="true">'+(j+1)+'</kbd>':'')+'</span></label>';}).join('')+'</div></fieldset>'+
+      '<fieldset><legend>Authenticity comments</legend><div class="chips">'+(bk.length?bk.map(function(b){return chip('gb-'+b.id,'bankc',b.id,(s.comments._bonus||[]).indexOf(b.id)>-1,b.text,cnt(bankUses('_bonus',b.id)));}).join(''):'<p class="empty">No authenticity comments saved yet.</p>')+'</div>'+
+      '<div class="addline"><label class="sr-only" for="gb-new">New authenticity comment</label><input type="text" id="gb-new" data-g="newbank" placeholder="Add a new authenticity comment"><button type="button" class="btn sm" data-act="add-bank-g">'+ic('plus')+'Save and use</button></div></fieldset>'+
+      '<div class="field"><label for="gb-note">What stood out (shown with the bonus)</label><textarea id="gb-note" data-g="note" rows="3">'+esc(s.notes._bonus||'')+'</textarea></div></section>';
+  }
   else if(k==='_overall'){
     var bank=R().generalBank.filter(function(b){return b.text.trim();});
     h='<section data-cid="_overall" aria-labelledby="stepH"><p class="eyebrow">Overall</p><h2 class="step-h" id="stepH" tabindex="-1">Overall feedback</h2><p class="step-desc">Timeliness and comments for the whole submission. These appear at the end of the student sheet.</p>'+lateFieldset(s)+
@@ -1329,9 +1463,9 @@ function lateFieldset(s){if(!lateOn())return '';var cur=lateTier(s);
   return '<fieldset><legend>Timeliness</legend><div class="tiles-lv">'+R().late.tiers.map(function(x){return '<label class="lv" for="gl-'+x.id+'"><input type="radio" id="gl-'+x.id+'" name="glate" value="'+x.id+'" data-g="late"'+(cur&&cur.id===x.id?' checked':'')+'>'+
     '<span class="lv-top"><span class="lv-name"><span class="sel-mark" aria-hidden="true">'+ic('check')+'</span>'+esc(x.label||'Unnamed tier')+'</span><span class="lv-pts">'+(num(x.pct)?'minus '+fmt(x.pct)+'%':'Full credit')+'</span></span></label>';}).join('')+'</div></fieldset>';}
 function reviewHTML(s){
-  var miss=R().criteria.filter(function(c){return !lvOf(c,s);});
-  return '<section aria-labelledby="stepH"><p class="eyebrow">Review</p><h2 class="step-h" id="stepH" tabindex="-1">Student grading sheet</h2>'+
-    (miss.length?'<div class="flag"><p>Still to score: '+miss.map(function(c){return esc(c.name||'Untitled');}).join(', ')+'.</p><button type="button" class="btn sm" data-step="'+R().criteria.indexOf(miss[0])+'">Go to '+esc(miss[0].name||'criterion')+'</button></div>':'<p class="step-desc">This is exactly what the student will see. Copy it for Canvas or save it as a PDF.</p>')+
+  var miss=missingParts(s);
+  return '<section aria-labelledby="stepH"><p class="eyebrow">Review'+(s.regradeOf?' · Regrade':'')+'</p><h2 class="step-h" id="stepH" tabindex="-1">Student grading sheet</h2>'+
+    (miss.length?'<div class="flag"><p>Still to score: '+miss.map(esc).join(', ')+'.</p><button type="button" class="btn sm" data-step="'+missStep(s)+'">Go there</button></div>':(s.status==='complete'&&canRegrade(s)?'<div class="flag"><p>If this student resubmits, start their one regrade. Both attempts are kept'+(R().regrade.cap<100?', and the regrade is capped at '+R().regrade.cap+'%':'')+'.</p><button type="button" class="btn sm" data-act="start-regrade">'+ic('plus')+'Start regrade</button></div>':'')+'<p class="step-desc">This is exactly what the student will see. Copy it for Canvas or save it as a PDF.</p>')+
     '<div class="row" style="margin-bottom:1rem"><button type="button" class="btn sm" data-act="copy-sheet">'+ic('copy')+'Copy as text</button><button type="button" class="btn sm" data-act="print-sheet">'+ic('print')+'Save as PDF</button><span class="hint" id="revStatus" aria-live="polite"></span></div>'+
     sheetHTML(s)+'</section>';
 }
@@ -1339,6 +1473,16 @@ function aiStatusText(a,sel){if(!a.levelId)return 'Claude\'s level did not match
 function renderSide(){
   var s=cur(),k=steps()[state.step],el=$('#sideSuggest'),h='';
   $('#aiBox').open=!s.ai;
+  if(k==='_bonus'){var au=s.ai&&s.ai.auth;el.innerHTML=au&&(au.evidence||au.note)?'<div class="suggest"><p class="eyebrow">Original thinking Claude noticed</p>'+(au.evidence?'<blockquote>'+esc(au.evidence)+'</blockquote>':'')+(au.note?'<p style="font-size:.9rem">'+esc(au.note)+'</p>':'')+'<p class="hint">A pointer only. Whether to give a bonus is your call.</p></div>':'<p class="hint">If you load Claude\'s read, it points out specific signs of original thinking here. It never judges whether AI was used.</p>';return;}
+  if(isM()){
+    if(s.ai&&s.ai.reqs){var d=aiDiffs(s),dis=mResult(s).up.filter(function(o){var a=s.ai.reqs[o.q.id],v=s.met[o.q.id];return a&&v&&(v==='y')!==!!a.met;});
+      h='<div class="suggest"><p class="eyebrow">Requirements</p><p class="lvname">'+(d&&d.n?(d.n-d.d)+' of '+d.n+' match':'Not compared yet')+'</p>'+
+        (dis.length?'<p style="font-size:.9rem">You and Claude differ on:</p><ul style="font-size:.9rem;padding-left:1.1rem">'+dis.map(function(o){var a=s.ai.reqs[o.q.id];return '<li>'+esc(o.q.text)+(a.evidence?'<br><span class="muted">Claude saw: '+esc(a.evidence)+'</span>':'')+(a.rationale?'<br>'+esc(a.rationale):'')+'</li>';}).join('')+'</ul>':'')+
+        (mResult(s).open.length?'<button type="button" class="btn sm" data-act="use-ai-m">Fill open requirements from Claude</button>':'')+
+        (s.ai.overall?'<p class="hint" style="margin-top:.6rem">'+esc(s.ai.overall)+'</p>':'')+'</div>';}
+    else h='<p class="hint">Optional. Load Claude\'s read to see which requirements it judged met or not met, with evidence.</p>';
+    el.innerHTML=h;return;
+  }
   if(s.ai&&s.ai.criteria){
     if(crit(k)){var c=crit(k),a=s.ai.criteria[c.id];
       if(a){var al=c.levels.filter(function(l){return l.id===a.levelId;})[0];
@@ -1357,8 +1501,8 @@ function goStep(i){var n=steps().length;state.step=Math.max(0,Math.min(n-1,i));$
 function switchSub(s,keep){if(!s)return;stopT();state.curId=s.id;startT();if(!(keep||prefs.across))state.step=firstOpenStep(s);$('#gmAlert').textContent='';$('#aiStatus').textContent='';renderGM();focusStep();announce('Now grading '+s.label+'.');}
 function neighbor(dir){var l=termSubs(),i=l.findIndex(function(s){return s.id===state.curId;});return l[i+dir]||null;}
 function completeAndNext(){
-  var s=cur(),miss=R().criteria.filter(function(c){return !lvOf(c,s);});
-  if(miss.length){goStep(R().criteria.indexOf(miss[0]));$('#gmAlert').textContent='Choose a level for: '+miss.map(function(c){return c.name||'Untitled';}).join(', ')+'.';return;}
+  var s=cur(),miss=missingParts(s);
+  if(miss.length){goStep(missStep(s));$('#gmAlert').textContent=(isM()?'Still to judge: ':'Choose a level for: ')+miss.join(', ')+'.';return;}
   s.status='complete';saveRecs();
   var nx=termSubs().filter(function(x){return x.status!=='complete';})[0];
   if(nx){switchSub(nx);announce(s.label+' complete. Now grading '+nx.label+'.');$('#gmAlert').textContent=s.label+' marked complete.';}
@@ -1367,6 +1511,9 @@ function completeAndNext(){
 function onGMChange(e){
   var t=e.target,s=cur();if(!s)return;var sec=t.closest('[data-cid]'),cid=sec&&sec.dataset.cid,g=t.dataset.g;
   if(g==='late'){s.late=t.value;}
+  else if(g==='bonuslv'){s.bonus=t.value;saveRecs();updScore();renderStepper();renderQueue();return;}
+  else if(g==='elect'){s.elect=t.value;saveRecs();updScore();renderStepper();renderQueue();renderStep();renderSide();renderGM();var er=$('#me-'+t.value);if(er)er.focus();return;}
+  else if(g==='met'){s.met[t.dataset.rq]=t.value;var mr=$('#mRes');saveRecs();updScore();renderStepper();renderQueue();if(mr)mr.textContent=mSummary(s);return;}
   else if(g==='level'){s.level[cid]=t.value;var a=s.ai&&s.ai.criteria&&s.ai.criteria[cid],al=$('#agreeLine');if(a&&al)al.textContent=aiStatusText(a,t.value);}
   else if(g==='check'||g==='bankc'){var arr;if(cid==='_overall')arr=s.overallComments;else{var key=g==='check'?'checks':'comments';s[key][cid]=s[key][cid]||[];arr=s[key][cid];}
     var i=arr.indexOf(t.value);if(t.checked&&i<0)arr.push(t.value);if(!t.checked&&i>-1)arr.splice(i,1);}
@@ -1386,10 +1533,12 @@ function onGMClick(e){
   var b=e.target.closest('[data-act]');if(!b)return;var s=cur(),sec=b.closest('[data-cid]'),cid=sec&&sec.dataset.cid,act=b.dataset.act;
   if(act==='use-ai'){var k=steps()[state.step],a=s.ai.criteria[k];s.level[k]=a.levelId;saveRecs();renderGM();var r=$('#g'+k+'-'+a.levelId);if(r)r.focus();announce('Used Claude\'s level.');}
   else if(act==='add-bank-g'){var inp=sec.querySelector('[data-g=newbank]'),cl=scrub(inp.value),txt=cl.text.trim();if(!txt){inp.focus();announce('Type a comment first.');return;}
-    var res=addToBank(cid,txt,s);renderStep();renderStepper();var cb=$((cid==='_overall'?'#go-b':'#g'+cid+'-b')+res.item.id);if(cb)cb.focus();announce('Saved to the bank and checked.'+(cl.changed?' Removed '+uniq(cl.found).join(', ')+'.':''));}
+    var res=addToBank(cid,txt,s);renderStep();renderStepper();var cb=$((cid==='_overall'?'#go-b':cid==='_bonus'?'#gb-':'#g'+cid+'-b')+res.item.id);if(cb)cb.focus();announce('Saved to the bank and checked.'+(cl.changed?' Removed '+uniq(cl.found).join(', ')+'.':''));}
   else if(act==='note-to-bank'){var ta=sec.querySelector('[data-g=note]'),nt=scrub(ta.value).text.trim();if(!nt){ta.focus();announce('Write a comment first.');return;}
     var r2=addToBank(cid,nt,s);if(cid==='_overall')s.overall='';else s.notes[cid]='';saveRecs();renderStep();renderStepper();
-    var cb2=$((cid==='_overall'?'#go-b':'#g'+cid+'-b')+r2.item.id);if(cb2)cb2.focus();announce(r2.existed?'Already in the bank. It is now checked.':'Saved to the bank and checked. You can reuse it for other students.');}
+    var cb2=$((cid==='_overall'?'#go-b':cid==='_bonus'?'#gb-':'#g'+cid+'-b')+r2.item.id);if(cb2)cb2.focus();announce(r2.existed?'Already in the bank. It is now checked.':'Saved to the bank and checked. You can reuse it for other students.');}
+  else if(act==='start-regrade'){var rg=newRegrade(s);if(rg){switchSub(rg);announce('Regrade started for '+rg.label+'.');}}
+  else if(act==='use-ai-m'){var nU=0;Object.keys(s.ai.reqs||{}).forEach(function(id){if(!s.met[id]){s.met[id]=s.ai.reqs[id].met?'y':'n';nU++;}});saveRecs();renderGM();announce(plural(nU,'requirement')+' filled from Claude. Check each one.');}
   else if(act==='copy-sheet')copyText(sheetText(s),$('#revStatus'),'Copied. Paste it into Canvas.');
   else if(act==='print-sheet')printHTML(sheetHTML(s));
 }
@@ -1398,7 +1547,9 @@ function onGMKey(e){
   if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){e.preventDefault();if(prefs.across)acrossNext();else completeAndNext();return;}
   if(typing||e.altKey||e.ctrlKey||e.metaKey||!prefs.keys)return;
   var k=steps()[state.step];
-  if(/^[1-9]$/.test(e.key)&&crit(k)){var lv=crit(k).levels[num(e.key)-1];if(lv){e.preventDefault();var r=$('#g'+k+'-'+lv.id);r.checked=true;r.dispatchEvent(new Event('change',{bubbles:true}));r.focus();announce(lv.label+' selected.');}}
+  if(/^[1-9]$/.test(e.key)&&k==='_bonus'){var bx=R().bonus.levels[num(e.key)-1],br=bx&&$('#bn-'+bx.id);if(br){e.preventDefault();br.checked=true;br.dispatchEvent(new Event('change',{bubbles:true}));announce((bx.label||'Bonus')+' selected.');}}
+  else if(/^[1-9]$/.test(e.key)&&k==='_mastery'){var tt=tiersAsc()[num(e.key)-1],er=tt&&$('#me-'+tt.id);if(er&&!er.disabled){e.preventDefault();er.checked=true;er.dispatchEvent(new Event('change',{bubbles:true}));announce((tt.label||tt.pct+'%')+' chosen.');}}
+  else if(/^[1-9]$/.test(e.key)&&crit(k)){var lv=crit(k).levels[num(e.key)-1];if(lv){e.preventDefault();var r=$('#g'+k+'-'+lv.id);r.checked=true;r.dispatchEvent(new Event('change',{bubbles:true}));r.focus();announce(lv.label+' selected.');}}
   else if(e.key===']'){e.preventDefault();goStep(state.step+1);}
   else if(e.key==='['){e.preventDefault();goStep(state.step-1);}
   else if(e.key==='j'||e.key==='J'){var n=neighbor(1);if(n){e.preventDefault();switchSub(n);}}
@@ -1409,7 +1560,23 @@ function toggleQueue(on){var q=$('#gmQueue');on=on===undefined?!q.classList.cont
 function openKeys(){$('#keysOn').checked=!!prefs.keys;$('#keysDlg').showModal();$('#keysClose').focus();}
 
 /* ================= Claude prompt ================= */
+function authRule(){return bonusOn()?'6b. Separately, for the instructor only: point out specific evidence of original thinking that goes beyond a correct answer, such as the student\'s own examples, clinical application, connections across topics or body systems, an original drawing or analogy, or reasoning beyond the course materials. Quote it. If there is none, leave it empty. Never claim, guess, or imply that the work was written by AI or anyone else.\n':'';}
+function authEx(ex){if(!bonusOn())return ex;var o=JSON.parse(JSON.stringify(ex));o.authenticity={evidence:'short quote showing original thinking, or empty',note:'one sentence on what makes it more than correct, or empty'};return o;}
+function buildPromptM(s){
+  var r=R(),T=tiersAsc(),x=mResult(s),upto=x.E?T.filter(function(t){return t.pct<=x.E.pct;}):T;
+  var rub={assignment:r.title,grading:'mastery',note:'Levels are cumulative. A level is earned only if every requirement of that level and every lower level is met.',levels:upto.map(function(t){return {level:t.label,percent:t.pct,requirements:liveReqs(t).map(function(q){return {id:q.id,text:q.text};})};})};
+  var ex={submission:s.label,requirements:[{id:'requirement id from the rubric',met:true,evidence:'short quote from the work',rationale:'one sentence'}],overall:'two or three sentences for the instructor'};
+  return 'You are helping Dr. Sharilyn Rennie grade one student submission with mastery grading. She makes the final decision. Your job is a careful, consistent second read.\n\nRules:\n'+
+  '1. '+(x.E?'The student chose the '+x.E.label+' level. Judge every requirement for that level and every level below it.':'Judge every requirement listed.')+'\n'+
+  '2. Mark each requirement met (true) or not met (false). Met means fully met as written. If it is partly done, it is not met; explain what is missing.\n'+
+  '3. Quote a short piece of evidence from the work for each judgment. If there is no evidence, say so.\n'+
+  '4. Judge every student the same way. Do not reward length or polish the requirement does not ask for.\n'+
+  '5. Do not write any student names, emails, or ID numbers. Refer to "the student".\n'+
+  '6. Check the scientific accuracy of the work yourself. Do not assume statements in the work are correct.\n'+
+  authRule()+'7. Reply with JSON only, no other text, in exactly this shape:\n'+JSON.stringify(authEx(ex),null,2)+'\n\nRUBRIC:\n'+JSON.stringify(rub,null,2)+(r.instructions?'\n\nASSIGNMENT INSTRUCTIONS (what students were asked to do):\n'+r.instructions.slice(0,15000):'')+(r.material?'\n\nTHE ASSIGNMENT ITSELF:\n'+r.material.slice(0,15000):'')+'\n\nSTUDENT WORK FOR '+s.label+' (name removed):\n[Paste the work here]';
+}
 function buildPrompt(s){
+  if(isM())return buildPromptM(s);
   var r=R();
   var rub={assignment:r.title,criteria:r.criteria.map(function(c){return {id:c.id,name:c.name,assesses:c.desc,levels:c.levels.map(function(l){return {level:l.label,points:num(l.points),descriptor:l.desc};}),checklist:c.checks.map(function(k){return k.text;}).filter(Boolean)};})};
   var ex={submission:s.label,criteria:r.criteria.map(function(c){return {id:c.id,criterion:c.name,level:(c.levels[0]||{}).label||'',points:num((c.levels[0]||{}).points),checklist_met:[],evidence:'short quote from the work',rationale:'one or two sentences tied to the descriptor'};}),overall:'two or three sentences for the instructor'};
@@ -1420,7 +1587,7 @@ function buildPrompt(s){
   '4. If the work falls between two levels, choose the level whose descriptor is fully met and explain what is missing for the next one.\n'+
   '5. Do not write any student names, emails, or ID numbers. Refer to "the student".\n'+
   '6. Check the scientific accuracy of the work yourself. Do not assume statements in the work are correct.\n'+
-  '7. Reply with JSON only, no other text, in exactly this shape:\n'+JSON.stringify(ex,null,2)+'\n\nRUBRIC:\n'+JSON.stringify(rub,null,2)+(r.instructions?'\n\nASSIGNMENT INSTRUCTIONS (what students were asked to do):\n'+r.instructions.slice(0,15000):'')+(r.material?'\n\nTHE ASSIGNMENT ITSELF (worksheet, questions, or prompt students completed):\n'+r.material.slice(0,15000):'')+'\n\nSTUDENT WORK FOR '+s.label+' (name removed):\n[Paste the work here]';
+  authRule()+'7. Reply with JSON only, no other text, in exactly this shape:\n'+JSON.stringify(authEx(ex),null,2)+'\n\nRUBRIC:\n'+JSON.stringify(rub,null,2)+(r.instructions?'\n\nASSIGNMENT INSTRUCTIONS (what students were asked to do):\n'+r.instructions.slice(0,15000):'')+(r.material?'\n\nTHE ASSIGNMENT ITSELF (worksheet, questions, or prompt students completed):\n'+r.material.slice(0,15000):'')+'\n\nSTUDENT WORK FOR '+s.label+' (name removed):\n[Paste the work here]';
 }
 function copyText(text,statusEl,ok){
   function fb(){var ta=document.createElement('textarea');ta.value=text;ta.setAttribute('readonly','');ta.style.position='fixed';ta.style.opacity='0';(document.querySelector('dialog[open]')||document.body).appendChild(ta);ta.select();var r=false;try{r=document.execCommand('copy');}catch(e){}ta.remove();statusEl.textContent=r?ok:'Copy was blocked. Select the text and copy it yourself.';}
@@ -1431,13 +1598,19 @@ function loadAI(){
   try{if(a<0||b<a)throw 0;obj=JSON.parse(raw.slice(a,b+1));}catch(e){st.textContent='That did not look like Claude\'s JSON reply. Paste the whole reply, including the curly braces.';return;}
   var out={},matched=0,removed=[];
   function clean(v){var c=scrub(v==null?'':String(v));if(c.changed)removed=removed.concat(c.found);return c.text;}
+  if(isM()){var all=[];tiersAsc().forEach(function(t){all=all.concat(liveReqs(t));});
+    (Array.isArray(obj.requirements)?obj.requirements:[]).forEach(function(x){var q=all.filter(function(q){return q.id===String(x.id);})[0]||all.filter(function(q){return norm(q.text)===norm(x.text||x.requirement);})[0];if(!q)return;
+      out[q.id]={met:x.met===true||String(x.met).toLowerCase()==='true'||String(x.met).toLowerCase()==='met',evidence:clean(x.evidence),rationale:clean(x.rationale)};matched++;});
+    if(!matched){st.textContent='None of the requirements in that reply match this rubric. Make sure you used the prompt for this assignment.';return;}
+    s.ai={reqs:out,overall:clean(obj.overall),auth:obj.authenticity?{evidence:clean(obj.authenticity.evidence),note:clean(obj.authenticity.note)}:null};$('#aiPaste').value='';saveRecs();renderGM();focusStep();
+    st.textContent='Loaded Claude\'s read for '+matched+' of '+all.length+' requirements. Nothing was marked for you.'+(removed.length?' Removed '+uniq(removed).join(', ')+'.':'');return;}
   (Array.isArray(obj.criteria)?obj.criteria:[]).forEach(function(x){
     var c=crit(String(x.id))||R().criteria.filter(function(c){return norm(c.name)===norm(x.criterion||x.name);})[0];if(!c)return;
     var lv=c.levels.filter(function(l){return norm(l.label)===norm(x.level);})[0]||c.levels.filter(function(l){return x.points!=null&&num(l.points)===num(x.points);})[0];
     out[c.id]={levelId:lv?lv.id:null,levelText:clean(x.level),rationale:clean(x.rationale),evidence:clean(x.evidence),checksMet:(Array.isArray(x.checklist_met)?x.checklist_met:[]).map(clean)};if(lv)matched++;
   });
   if(!Object.keys(out).length){st.textContent='None of the criteria in that reply match this rubric. Make sure you used the prompt for this rubric.';return;}
-  s.ai={criteria:out,overall:clean(obj.overall)};$('#aiPaste').value='';saveRecs();renderGM();focusStep();
+  s.ai={criteria:out,overall:clean(obj.overall),auth:obj.authenticity?{evidence:clean(obj.authenticity.evidence),note:clean(obj.authenticity.note)}:null};$('#aiPaste').value='';saveRecs();renderGM();focusStep();
   $('#aiStatus').textContent='Loaded Claude\'s scoring for '+matched+' of '+R().criteria.length+' criteria. Nothing was scored for you.'+(removed.length?' Removed '+uniq(removed).join(', ')+'.':'');
 }
 
@@ -1445,7 +1618,47 @@ function loadAI(){
 function todayStr(){return new Date().toLocaleDateString(undefined,{year:'numeric',month:'long',day:'numeric'});}
 function textsFor(ids,bank){return (ids||[]).map(function(id){var b=bank.filter(function(x){return x.id===id;})[0];return b?b.text:null;}).filter(function(t){return t&&t.trim();});}
 function nextUp(c,lv){if(!lv)return null;var ab=c.levels.filter(function(l){return num(l.points)>num(lv.points);});ab.sort(function(a,b){return num(a.points)-num(b.points);});return ab[0]||null;}
+function bonusHTML(s,sc){if(!sc.bonus)return '';var cm=textsFor(s.comments._bonus,R().bonus.bank);if((s.notes._bonus||'').trim())cm.push(s.notes._bonus.trim());
+  return '<div class="s-bonus"><h3 style="margin-top:1rem">Authenticity bonus: +'+fmt(sc.bonus)+'%</h3><p>Your answer was more than just correct. Here is what stood out:</p>'+(cm.length?'<ul>'+cm.map(function(x){return '<li>'+esc(x)+'</li>';}).join('')+'</ul>':'')+'</div>';}
+function bonusText(s,sc,L){if(!sc.bonus)return;L.push('AUTHENTICITY BONUS: +'+fmt(sc.bonus)+'%');L.push('Your answer was more than just correct. Here is what stood out:');textsFor(s.comments._bonus,R().bonus.bank).forEach(function(x){L.push('  - '+x);});if((s.notes._bonus||'').trim())L.push('  - '+s.notes._bonus.trim());L.push('');}
+function mSheetHTML(s){
+  var r=R(),sc=score(s),x=sc.m;
+  var rows=x.up.map(function(o){var v=s.met[o.q.id];return '<tr><th scope="row">'+esc(o.q.text)+'</th><td>'+esc(o.t.label)+'</td><td>'+(v==='y'?'Met':v==='n'?'Not met yet':'Not judged')+'</td></tr>';}).join('');
+  var res=!x.E?'No level was chosen.':x.earned?(x.earned.id===x.E.id?'You met every requirement for '+x.E.label+'.':'You met every requirement up to '+x.earned.label+'. Some requirements for '+x.E.label+' are not met yet.'):'Not every requirement for the first level ('+(tiersAsc()[0]||{}).label+') is met yet.';
+  var miss=x.missed.concat(x.open);
+  var notes=(s.notes._mastery||'').trim(),ov=textsFor(s.overallComments,r.generalBank);if(s.overall&&s.overall.trim())ov.push(s.overall.trim());
+  return '<article class="sheet" aria-labelledby="sh-'+s.id+'"><p class="eyebrow">'+(r.course?esc(r.course)+' · ':'')+'Grading Sheet · Mastery grading</p><h2 id="sh-'+s.id+'">'+esc(r.title||'Assignment')+'</h2>'+
+    '<p class="s-meta"><span>Anonymous ID: '+esc(s.label)+'</span><span>'+esc(s.term+' · '+s.section)+'</span>'+(s.regradeOf?'<span>Regrade (second attempt)</span>':'')+(sc.tier?'<span>Submitted: '+esc(sc.tier.label)+'</span>':'')+'<span>Score: '+fmt(sc.got)+' / '+fmt(sc.max)+' ('+sc.pct+'%)</span></p>'+
+    '<p><strong>Level you chose:</strong> '+esc(x.E?x.E.label:'None')+'. <strong>Level earned:</strong> '+esc(x.earned?x.earned.label:'None yet')+'.</p><p>'+esc(res)+' Each level includes every requirement of the levels below it.</p>'+
+    (rows?'<div class="table-wrap"><table><caption class="sr-only">Requirements for the level you chose</caption><thead><tr><th scope="col">Requirement</th><th scope="col">Level</th><th scope="col">Result</th></tr></thead><tbody>'+rows+'</tbody></table></div>':'')+
+    (miss.length?'<p class="s-next"><strong>To reach '+esc(x.E.label)+':</strong> '+miss.map(function(o){return esc(o.q.text);}).join('; ')+'.</p>':'')+
+    (notes?'<p>'+esc(notes)+'</p>':'')+
+    '<div class="table-wrap"><table><caption class="sr-only">How the score was calculated</caption><tbody>'+
+    '<tr><th scope="row">Level earned</th><td>'+esc(x.earned?x.earned.label:'No level fully met')+'</td><td>'+(x.E?(x.earned?x.earned.pct:r.mastery.none)+'%':'')+'</td></tr>'+
+    (sc.bonus?'<tr><th scope="row">Authenticity bonus</th><td>For original thinking (see below)</td><td>+'+fmt(sc.bonus)+'%</td></tr>':'')+
+    (sc.capped?'<tr><th scope="row">Regrade</th><td>Regrades are capped at '+sc.cap+'%.</td><td>'+sc.cap+'%</td></tr>':(s.regradeOf?'<tr><th scope="row">Regrade</th><td>This is your one regrade. The highest grade possible on a regrade is '+sc.cap+'%.</td><td></td></tr>':''))+
+    (sc.ded?'<tr><th scope="row">Late policy: '+esc(sc.tier.label)+'</th><td>'+(sc.ded>=100?'No credit for late work past this point.':'The deduction applies to the total.')+'</td><td>minus '+fmt(sc.ded)+'%</td></tr>':'')+
+    '<tr><th scope="row">Final score</th><td>'+fmt(sc.got)+' / '+fmt(sc.max)+'</td><td>'+sc.pct+'%</td></tr></tbody></table></div>'+bonusHTML(s,sc)+
+    (ov.length?'<h3 style="margin-top:1rem">Overall feedback</h3><ul>'+ov.map(function(tx){return '<li>'+esc(tx)+'</li>';}).join('')+'</ul>':'')+
+    '<p class="byline">Graded by Dr. Sharilyn Rennie · '+esc(todayStr())+'</p></article>';
+}
+function mSheetText(s){
+  var r=R(),sc=score(s),x=sc.m,L=[];
+  L.push((r.course?r.course+' | ':'')+'Grading Sheet | Mastery grading');L.push(r.title||'Assignment');
+  L.push('Anonymous ID: '+s.label+' | '+s.term+' · '+s.section+(s.regradeOf?' | Regrade (second attempt)':'')+(sc.tier?' | Submitted: '+sc.tier.label:'')+' | Score: '+fmt(sc.got)+' / '+fmt(sc.max)+' ('+sc.pct+'%)');L.push('');
+  L.push('Level you chose: '+(x.E?x.E.label:'None')+' | Level earned: '+(x.earned?x.earned.label:'None yet'));L.push('Each level includes every requirement of the levels below it.');L.push('');
+  x.up.forEach(function(o){var v=s.met[o.q.id];L.push((v==='y'?'Met':v==='n'?'Not met yet':'Not judged')+' ('+o.t.label+'): '+o.q.text);});
+  var miss=x.missed.concat(x.open);if(miss.length){L.push('');L.push('To reach '+x.E.label+': '+miss.map(function(o){return o.q.text;}).join('; ')+'.');}
+  if((s.notes._mastery||'').trim()){L.push('');L.push(s.notes._mastery.trim());}
+  L.push('');bonusText(s,sc,L);if(s.regradeOf)L.push('Regrade: the highest grade possible on a regrade is '+sc.cap+'%.'+(sc.capped?' The cap was applied.':''));
+  if(sc.ded)L.push('Late policy ('+sc.tier.label+'): minus '+fmt(sc.ded)+'%');
+  L.push('Final score: '+fmt(sc.got)+' / '+fmt(sc.max)+' ('+sc.pct+'%)');L.push('');
+  var ov=textsFor(s.overallComments,r.generalBank);if(s.overall&&s.overall.trim())ov.push(s.overall.trim());
+  if(ov.length){L.push('OVERALL FEEDBACK');ov.forEach(function(tx){L.push('  - '+tx);});L.push('');}
+  L.push('Graded by Dr. Sharilyn Rennie, '+todayStr());return L.join('\n');
+}
 function sheetHTML(s){
+  if(isM())return mSheetHTML(s);
   var r=R(),sc=score(s);
   var rows=r.criteria.map(function(c){
     var lv=lvOf(c,s),up=nextUp(c,lv),checks=c.checks.filter(function(k){return k.text.trim();}),met=s.checks[c.id]||[],fb='';
@@ -1458,15 +1671,18 @@ function sheetHTML(s){
   }).join('');
   var ov=textsFor(s.overallComments,r.generalBank);if(s.overall&&s.overall.trim())ov.push(s.overall.trim());
   return '<article class="sheet" aria-labelledby="sh-'+s.id+'"><p class="eyebrow">'+(r.course?esc(r.course)+' · ':'')+'Grading Sheet</p><h2 id="sh-'+s.id+'">'+esc(r.title||'Assignment')+'</h2>'+
-    '<p class="s-meta"><span>Anonymous ID: '+esc(s.label)+'</span><span>'+esc(s.term+' · '+s.section)+'</span>'+(sc.tier?'<span>Submitted: '+esc(sc.tier.label)+'</span>':'')+'<span>Score: '+fmt(sc.got)+' / '+fmt(sc.max)+' ('+sc.pct+'%)</span></p>'+
+    '<p class="s-meta"><span>Anonymous ID: '+esc(s.label)+'</span><span>'+esc(s.term+' · '+s.section)+'</span>'+(s.regradeOf?'<span>Regrade (second attempt)</span>':'')+(sc.tier?'<span>Submitted: '+esc(sc.tier.label)+'</span>':'')+'<span>Score: '+fmt(sc.got)+' / '+fmt(sc.max)+' ('+sc.pct+'%)</span></p>'+
     '<div class="table-wrap"><table><caption class="sr-only">Scores and feedback by criterion</caption><thead><tr><th scope="col">Criterion</th><th scope="col">Level earned</th><th scope="col">Points</th><th scope="col">Feedback</th></tr></thead><tbody>'+rows+'</tbody>'+
     '<tfoot>'+(sc.ded?'<tr><th scope="row" colspan="2">Points earned for the work</th><td>'+fmt(sc.raw)+' / '+fmt(sc.max)+'</td><td>'+(sc.max?Math.round(sc.raw/sc.max*1000)/10:0)+'%</td></tr>'+
       '<tr><th scope="row" colspan="2">Late policy: '+esc(sc.tier.label)+'</th><td>minus '+fmt(sc.ded)+'%</td><td>'+(sc.ded>=100?'No credit for late work past this point.':'The deduction applies to the total.')+'</td></tr>':'')+
+      (sc.bonus?'<tr><th scope="row" colspan="2">Authenticity bonus</th><td>+'+fmt(sc.bonus)+'%</td><td>For original thinking (see below).</td></tr>':'')+
+      (s.regradeOf?'<tr><th scope="row" colspan="2">Regrade (second attempt)</th><td>'+(sc.capped?'capped at '+sc.cap+'%':'cap '+sc.cap+'%')+'</td><td>The highest grade possible on a regrade is '+sc.cap+'%.</td></tr>':'')+
       '<tr><th scope="row" colspan="2">'+(sc.ded?'Final score':'Total')+'</th><td>'+fmt(sc.got)+' / '+fmt(sc.max)+'</td><td>'+sc.pct+'%</td></tr></tfoot></table></div>'+
-    (ov.length?'<h3 style="margin-top:1rem">Overall feedback</h3><ul>'+ov.map(function(t){return '<li>'+esc(t)+'</li>';}).join('')+'</ul>':'')+
+    bonusHTML(s,sc)+(ov.length?'<h3 style="margin-top:1rem">Overall feedback</h3><ul>'+ov.map(function(t){return '<li>'+esc(t)+'</li>';}).join('')+'</ul>':'')+
     '<p class="byline">Graded by Dr. Sharilyn Rennie · '+esc(todayStr())+'</p></article>';
 }
 function sheetText(s){
+  if(isM())return mSheetText(s);
   var r=R(),sc=score(s),L=[];
   L.push((r.course?r.course+' | ':'')+'Grading Sheet');L.push(r.title||'Assignment');L.push('Anonymous ID: '+s.label+' | '+s.term+' · '+s.section+(sc.tier?' | Submitted: '+sc.tier.label:'')+' | Score: '+fmt(sc.got)+' / '+fmt(sc.max)+' ('+sc.pct+'%)');L.push('');
   r.criteria.forEach(function(c){var lv=lvOf(c,s),up=nextUp(c,lv);
@@ -1477,6 +1693,8 @@ function sheetText(s){
     if(s.notes[c.id]&&s.notes[c.id].trim())L.push('  - '+s.notes[c.id].trim());
     if(up)L.push('To reach '+up.label+': '+(up.desc||'See the rubric.'));L.push('');});
   var ov=textsFor(s.overallComments,r.generalBank);if(s.overall&&s.overall.trim())ov.push(s.overall.trim());
+  bonusText(s,sc,L);
+  if(s.regradeOf)L.push('Regrade (second attempt): the highest grade possible is '+sc.cap+'%.'+(sc.capped?' The cap was applied.':''));
   if(sc.ded){L.push('Points earned for the work: '+fmt(sc.raw)+' / '+fmt(sc.max));L.push('Late policy ('+sc.tier.label+'): minus '+fmt(sc.ded)+'%');L.push('Final score: '+fmt(sc.got)+' / '+fmt(sc.max)+' ('+sc.pct+'%)');L.push('');}
   if(ov.length){L.push('OVERALL FEEDBACK');ov.forEach(function(t){L.push('  - '+t);});L.push('');}
   L.push('Graded by Dr. Sharilyn Rennie, '+todayStr());return L.join('\n');
@@ -1503,7 +1721,9 @@ function renderConsistency(){
   h+='<div class="card"><div class="card-head"><h2 style="font-size:1.05rem">'+ic('flag')+' Things to double-check</h2><span class="muted">'+plural(flags.length,'item')+'</span></div>'+
     (flags.length?flags.map(function(f){return '<div class="flag"><p>'+esc(f.text)+'</p><div class="row">'+f.subs.map(function(s){return '<button type="button" class="btn sm" data-sact="edit" data-sid="'+s.id+'">Open '+esc(s.label)+'</button>';}).join('')+'</div></div>';}).join('')
       :'<p class="empty">Nothing stands out. Your levels, checklist, and comments line up across submissions.</p>')+'</div>';
-  h+='<h2 style="font-size:1.05rem;margin:1.5rem 0 .75rem">How often each level was given</h2><div class="chart-grid">'+R().criteria.map(function(c){
+  if(isM()){var rs2=reqStats(subs);h+='<div class="card"><h3>How often each requirement was marked met</h3><p class="hint">Look again at requirements you mark met for almost everyone or almost no one, and check that you applied each one the same way.</p>'+
+    (rs2.length?bars(rs2.map(function(x){var p=100-x.p;return {label:x.q.text+' ('+x.t.label+')',pct:p,value:(x.n-x.m)+' of '+x.n};})):'<p class="empty">No requirements judged yet.</p>')+'</div>';}
+  h+='<h2 style="font-size:1.05rem;margin:1.5rem 0 .75rem">How often each level was given</h2><div class="chart-grid">'+CRS().map(function(c){
     var sc=subs.filter(function(s){return lvOf(c,s);}),cn={};sc.forEach(function(s){cn[s.level[c.id]]=(cn[s.level[c.id]]||0)+1;});
     return '<div class="card"><h3 style="margin-bottom:.75rem">'+esc(c.name||'Untitled')+'</h3>'+bars(c.levels.map(function(l){var n=cn[l.id]||0,p=sc.length?Math.round(n/sc.length*100):0;return {label:l.label,pct:p,value:n+' ('+p+'%)'};}))+'</div>';}).join('')+'</div>';
   el.innerHTML=h;
@@ -1532,44 +1752,66 @@ function renderAnalysis(){
   var lateN=pool.filter(function(s){return score(s).ded>0;}).length,med=medianMin(pool);
   h+='<div class="tiles" role="list">'+tile('Completed',pool.length,lbl)+tile('Average',avgPct(pool)+'%','final score, after late deductions')+
     (lateOn()?tile('Late',Math.round(lateN/pool.length*100)+'%',plural(lateN,'submission')+' with a deduction'):'')+
-    tile('Grading time',med==null?'None':med+' min','median per submission')+tile('Agreement with Claude',agreement(pool)==null?'None':agreement(pool)+'%','criteria that matched')+'</div>';
+    tile('Grading time',med==null?'None':med+' min','median per submission')+tile('Agreement with Claude',agreement(pool)==null?'None':agreement(pool)+'%',isM()?'requirements that matched':'criteria that matched')+
+    (R().bonus.enabled?tile('Authenticity bonus',Math.round(pool.filter(function(s){return score(s).bonus>0;}).length/pool.length*100)+'%','of submissions earned it'):'')+'</div>';
+  if(isM())h+=masteryBlock(pool,lbl);
+  h+=regradeBlock(pool);
   h+=groupSection('By semester',tG,'semester');
   if(sG.length>1)h+=groupSection('By class section',sG,'section');
   if(R().versions.length>1){
     h+=groupSection('By assignment version (before and after your updates)',vG,'version');
     h+='<div class="card"><h3>Version history</h3><ul class="list">'+R().versions.map(function(v){return '<li><span><strong style="font-weight:500">Version '+v.n+'</strong> · '+esc(verDate(v,true))+(v.note?'<br><span class="muted">'+esc(v.note)+'</span>':'')+'</span><span class="muted" style="font-size:.85rem">'+plural(done.filter(function(s){return s.ver===v.id&&inT(s);}).length,'completed grade')+'</span></li>';}).join('')+'</ul></div>';
   }
-  var ranked=r.criteria.map(function(c){return {c:c,p:critPct(c,pool)};}).filter(function(x){return x.p!=null;}).sort(function(a,b){return a.p-b.p;});
-  var missed=[];r.criteria.forEach(function(c){var sc=pool.filter(function(s){return lvOf(c,s);});if(!sc.length)return;c.checks.filter(function(k){return k.text.trim();}).forEach(function(k){var m=sc.filter(function(s){return (s.checks[c.id]||[]).indexOf(k.id)<0;}).length;if(m)missed.push({c:c,k:k,n:sc.length,m:m,p:Math.round(m/sc.length*100)});});});
+  var ranked=CRS().map(function(c){return {c:c,p:critPct(c,pool)};}).filter(function(x){return x.p!=null;}).sort(function(a,b){return a.p-b.p;});
+  var missed=[];CRS().forEach(function(c){var sc=pool.filter(function(s){return lvOf(c,s);});if(!sc.length)return;c.checks.filter(function(k){return k.text.trim();}).forEach(function(k){var m=sc.filter(function(s){return (s.checks[c.id]||[]).indexOf(k.id)<0;}).length;if(m)missed.push({c:c,k:k,n:sc.length,m:m,p:Math.round(m/sc.length*100)});});});
   missed.sort(function(a,b){return b.p-a.p;});
-  var dis=r.criteria.map(function(c){var w=pool.filter(function(s){return s.ai&&s.ai.criteria&&s.ai.criteria[c.id]&&s.ai.criteria[c.id].levelId&&lvOf(c,s);});return {c:c,n:w.length,d:w.filter(function(s){return s.ai.criteria[c.id].levelId!==s.level[c.id];}).length};}).filter(function(x){return x.n;});
+  var dis=CRS().map(function(c){var w=pool.filter(function(s){return s.ai&&s.ai.criteria&&s.ai.criteria[c.id]&&s.ai.criteria[c.id].levelId&&lvOf(c,s);});return {c:c,n:w.length,d:w.filter(function(s){return s.ai.criteria[c.id].levelId!==s.level[c.id];}).length};}).filter(function(x){return x.n;});
   h+='<h2 style="font-size:1.05rem;margin:1.5rem 0 .75rem">Problem areas · '+esc(lbl)+'</h2><div class="chart-grid">';
-  h+='<div class="card"><h3>Lowest-scoring criteria</h3><p class="hint">Low averages across many students often point to unclear instructions, a missing example, or a topic that needs more class time.</p>'+(ranked.length?bars(ranked.slice(0,4).map(function(x){return {label:x.c.name,pct:x.p,value:x.p+'%'};})):'<p class="empty">None.</p>')+'</div>';
-  h+='<div class="card"><h3>Checklist items most often missed</h3><p class="hint">If many students miss the same item, check whether the assignment asks for it clearly.</p>'+(missed.length?bars(missed.slice(0,5).map(function(x){return {label:x.k.text,pct:x.p,value:x.p+'%'};})):'<p class="empty">No missed items, or no checklist in this rubric.</p>')+'</div>';
+  if(!isM())h+='<div class="card"><h3>Lowest-scoring criteria</h3><p class="hint">Low averages across many students often point to unclear instructions, a missing example, or a topic that needs more class time.</p>'+(ranked.length?bars(ranked.slice(0,4).map(function(x){return {label:x.c.name,pct:x.p,value:x.p+'%'};})):'<p class="empty">None.</p>')+'</div>';
+  if(!isM())h+='<div class="card"><h3>Checklist items most often missed</h3><p class="hint">If many students miss the same item, check whether the assignment asks for it clearly.</p>'+(missed.length?bars(missed.slice(0,5).map(function(x){return {label:x.k.text,pct:x.p,value:x.p+'%'};})):'<p class="empty">No missed items, or no checklist in this rubric.</p>')+'</div>';
   if(lateOn()){var tc={};pool.forEach(function(s){var x=lateTier(s);tc[x.id]=(tc[x.id]||0)+1;});
     h+='<div class="card"><h3>Timeliness</h3><p class="hint">Many late submissions can mean the deadline or the workload needs a second look.</p>'+bars(R().late.tiers.map(function(x){var n=tc[x.id]||0,p=pool.length?Math.round(n/pool.length*100):0;return {label:x.label,pct:p,value:n+' ('+p+'%)'};}))+'</div>';}
   if(dis.length)h+='<div class="card"><h3>Where you and Claude disagreed</h3><p class="hint">Frequent disagreement can mean a descriptor is open to more than one reading. Consider rewording it.</p>'+bars(dis.map(function(x){var p=Math.round(x.d/x.n*100);return {label:x.c.name,pct:p,value:p+'%'};}))+'</div>';
   h+='</div>';
-  var used=[];r.criteria.forEach(function(c){c.bank.forEach(function(b){var n=pool.filter(function(s){return (s.comments[c.id]||[]).indexOf(b.id)>-1;}).length;if(n)used.push({w:c.name,t:b.text,n:n});});});
+  var used=[];CRS().forEach(function(c){c.bank.forEach(function(b){var n=pool.filter(function(s){return (s.comments[c.id]||[]).indexOf(b.id)>-1;}).length;if(n)used.push({w:c.name,t:b.text,n:n});});});
   r.generalBank.forEach(function(b){var n=pool.filter(function(s){return s.overallComments.indexOf(b.id)>-1;}).length;if(n)used.push({w:'Overall',t:b.text,n:n});});
   used.sort(function(a,b){return b.n-a.n;});
   h+='<div class="card" style="margin-top:1rem"><h3>Most-used comments</h3><p class="hint">The comments you give most often show the most common gaps in student work.</p>'+
     (used.length?'<div class="table-wrap"><table><caption class="sr-only">Most-used comments</caption><thead><tr><th scope="col">Comment</th><th scope="col">Section</th><th scope="col">Used</th></tr></thead><tbody>'+
     used.slice(0,12).map(function(x){var p=Math.round(x.n/pool.length*100);return '<tr><td>'+esc(x.t)+'</td><td>'+esc(x.w)+'</td><td style="white-space:nowrap"><span class="meter" aria-hidden="true"><span style="width:'+p+'%"></span></span> '+x.n+' of '+pool.length+'</td></tr>';}).join('')+'</tbody></table></div>':'<p class="empty">No bank comments used yet.</p>');
-  var rep={};pool.forEach(function(s){r.criteria.forEach(function(c){var x=(s.notes[c.id]||'').trim();if(x){var k=c.id+'|'+norm(x);(rep[k]=rep[k]||{cid:c.id,w:c.name,t:x,n:0}).n++;}});var o=(s.overall||'').trim();if(o){var k2='_overall|'+norm(o);(rep[k2]=rep[k2]||{cid:'_overall',w:'Overall',t:o,n:0}).n++;}});
+  var rep={};pool.forEach(function(s){CRS().forEach(function(c){var x=(s.notes[c.id]||'').trim();if(x){var k=c.id+'|'+norm(x);(rep[k]=rep[k]||{cid:c.id,w:c.name,t:x,n:0}).n++;}});var o=(s.overall||'').trim();if(o){var k2='_overall|'+norm(o);(rep[k2]=rep[k2]||{cid:'_overall',w:'Overall',t:o,n:0}).n++;}});
   state.anRepeats=Object.keys(rep).map(function(k){return rep[k];}).filter(function(x){return x.n>1&&!bankOf(x.cid).some(function(b){return norm(b.text)===norm(x.t);});});
   if(state.anRepeats.length)h+='<h4>Comments you wrote more than once</h4><p class="hint">Save these to the bank so you can check them off next time.</p>'+state.anRepeats.map(function(x,i){return '<div class="flag"><p>"'+esc(x.t)+'" <span class="muted">('+esc(x.w)+', written '+x.n+' times)</span></p><button type="button" class="btn sm" data-an="'+i+'">'+ic('plus')+'Save to bank</button></div>';}).join('');
   h+='</div>';el.innerHTML=h;
 }
 
+function reqStats(pool){var out=[];tiersAsc().forEach(function(tt){liveReqs(tt).forEach(function(q){var inScope=pool.filter(function(s){var x=mResult(s);return x.E&&x.E.pct>=tt.pct&&s.met[q.id];}),miss=inScope.filter(function(s){return s.met[q.id]==='n';}).length;
+  if(inScope.length)out.push({t:tt,q:q,n:inScope.length,m:miss,p:Math.round(miss/inScope.length*100)});});});return out;}
+function masteryBlock(pool,lbl){
+  var T=tiersAsc(),ch={},ea={},same=0;pool.forEach(function(s){var x=mResult(s);if(x.E)ch[x.E.id]=(ch[x.E.id]||0)+1;var e=x.earned?x.earned.id:'_none';ea[e]=(ea[e]||0)+1;if(x.E&&x.earned&&x.earned.id===x.E.id)same++;});
+  var rs=reqStats(pool).filter(function(x){return x.m;}).sort(function(a,b){return b.p-a.p;});
+  return '<h2 style="font-size:1.05rem;margin:1.5rem 0 .75rem">Mastery levels · '+esc(lbl)+'</h2><div class="chart-grid">'+
+    '<div class="card"><h3>Level chosen and level earned</h3><p class="hint">'+Math.round(same/pool.length*100)+'% earned the level they chose. A big gap at one level can mean its requirements need clearer instructions or an example.</p>'+
+    '<div class="table-wrap"><table><caption class="sr-only">How many students chose and earned each level</caption><thead><tr><th scope="col">Level</th><th scope="col">Chose</th><th scope="col">Earned</th></tr></thead><tbody>'+
+    T.slice().reverse().map(function(x){return '<tr><th scope="row">'+esc(x.label)+'</th><td>'+(ch[x.id]||0)+'</td><td>'+(ea[x.id]||0)+'</td></tr>';}).join('')+
+    (ea._none?'<tr><th scope="row">No level fully met</th><td></td><td>'+ea._none+'</td></tr>':'')+'</tbody></table></div></div>'+
+    '<div class="card"><h3>Requirements most often not met</h3><p class="hint">Out of the students whose chosen level included the requirement.</p>'+(rs.length?bars(rs.slice(0,6).map(function(x){return {label:x.q.text+' ('+x.t.label+')',pct:x.p,value:x.p+'%'};})):'<p class="empty">Every judged requirement was met.</p>')+'</div></div>';
+}
+function regradeBlock(pool){
+  var rg=pool.filter(function(s){return s.regradeOf;});if(!rg.length)return '';
+  var orig=pool.filter(function(s){return !s.regradeOf;}),gains=rg.map(function(s){var o=sub(s.regradeOf);return o&&o.status==='complete'?score(s).pct-score(o).pct:null;}).filter(function(x){return x!=null;});
+  var avg=gains.length?Math.round(gains.reduce(function(a,b){return a+b;},0)/gains.length*10)/10:null;
+  return '<div class="card" style="margin-top:1rem"><h3>Regrades</h3><div class="tiles" role="list">'+tile('Regrades',rg.length,orig.length?Math.round(rg.length/orig.length*100)+'% of first attempts':'')+
+    tile('Average change',avg==null?'None':(avg>0?'+':'')+avg+' points','percent, regrade minus first attempt')+tile('Improved',gains.length?gains.filter(function(x){return x>0;}).length+' of '+gains.length:'None','scored higher the second time')+'</div></div>';
+}
 function medianMin(list){var a=list.map(function(s){return s.secs||0;}).filter(function(x){return x>5;}).sort(function(a,b){return a-b;});if(!a.length)return null;return Math.round(a[Math.floor(a.length/2)]/6)/10;}
 function groupSection(title,G,word){
   var r=R();if(!G.length)return '';
   return '<h2 style="font-size:1.05rem;margin:1.25rem 0 .75rem">'+esc(title)+'</h2><div class="chart-grid">'+
     '<div class="card"><h3 style="margin-bottom:.75rem">Whole assignment</h3>'+bars(G.map(function(g){var v=avgPct(g.list);return {label:g.label+' (n = '+g.list.length+')',pct:v,value:v+'%'};}))+'</div>'+
-    r.criteria.map(function(c){return '<div class="card"><h3 style="margin-bottom:.75rem">'+esc(c.name||'Untitled')+'</h3>'+bars(G.map(function(g){var v=critPct(c,g.list);return {label:g.label,pct:v||0,value:v==null?'None':v+'%'};}))+'</div>';}).join('')+'</div>'+
+    CRS().map(function(c){return '<div class="card"><h3 style="margin-bottom:.75rem">'+esc(c.name||'Untitled')+'</h3>'+bars(G.map(function(g){var v=critPct(c,g.list);return {label:g.label,pct:v||0,value:v==null?'None':v+'%'};}))+'</div>';}).join('')+'</div>'+
     '<details class="box" style="margin:1rem 0"><summary>Show as a table</summary><div class="in table-wrap"><table><caption class="sr-only">Average percent by criterion and '+word+'</caption><thead><tr><th scope="col">Criterion</th>'+G.map(function(g){return '<th scope="col">'+esc(g.label)+'</th>';}).join('')+'</tr></thead><tbody>'+
-    r.criteria.map(function(c){return '<tr><th scope="row">'+esc(c.name)+'</th>'+G.map(function(g){var v=critPct(c,g.list);return '<td>'+(v==null?'None':v+'%')+'</td>';}).join('')+'</tr>';}).join('')+
+    CRS().map(function(c){return '<tr><th scope="row">'+esc(c.name)+'</th>'+G.map(function(g){var v=critPct(c,g.list);return '<td>'+(v==null?'None':v+'%')+'</td>';}).join('')+'</tr>';}).join('')+
     '<tr><th scope="row">Whole assignment</th>'+G.map(function(g){return '<td>'+avgPct(g.list)+'% (n = '+g.list.length+')</td>';}).join('')+'</tr></tbody></table></div></details>';
 }
 function downloadDataCSV(){
@@ -1577,13 +1819,14 @@ function downloadDataCSV(){
   if(!list.length){$('#recStatus').textContent='No records match these filters.';return;}
   function q(v){v=String(v==null?'':v);return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;}
   var head=['Anonymous ID','Semester','Section','Version','Version date','Status','Timeliness','Late deduction %'];
-  r.criteria.forEach(function(c){var n=c.name||'Criterion';head.push(n+': level',n+': points',n+': possible',n+': checklist met',n+': bank comments used',n+': Claude level');});
-  head=head.concat(['Overall comments used','Work total','Final total','Possible','Final percent','Claude agreement (matched of compared)','Grading minutes']);
+  CRS().forEach(function(c){var n=c.name||'Criterion';head.push(n+': level',n+': points',n+': possible',n+': checklist met',n+': bank comments used',n+': Claude level');});
+  head=head.concat(['Overall comments used','Work total','Final total','Possible','Final percent','Claude agreement (matched of compared)','Grading minutes','Mastery level chosen','Mastery level earned','Requirements not met','Regrade','Authenticity bonus %']);
   var rows=list.map(function(s){var sc=score(s),v=verById(s.ver),ad=aiDiffs(s),row=[s.label,s.term,s.section,v?v.n:'',v?verDate(v,true):'',s.status,sc.tier?sc.tier.label:'',sc.ded];
-    r.criteria.forEach(function(c){var l=lvOf(c,s),ck=c.checks.filter(function(k){return k.text.trim();}),met=(s.checks[c.id]||[]).filter(function(id){return ck.some(function(k){return k.id===id;});}).length,
+    CRS().forEach(function(c){var l=lvOf(c,s),ck=c.checks.filter(function(k){return k.text.trim();}),met=(s.checks[c.id]||[]).filter(function(id){return ck.some(function(k){return k.id===id;});}).length,
       a=s.ai&&s.ai.criteria&&s.ai.criteria[c.id],al=a&&a.levelId?c.levels.filter(function(x){return x.id===a.levelId;})[0]:null;
       row.push(l?l.label:'',l?fmt(l.points):'',fmt(maxPts(c)),ck.length?met+' of '+ck.length:'',textsFor(s.comments[c.id],c.bank).join(' | '),al?al.label:'');});
-    return row.concat([textsFor(s.overallComments,r.generalBank).join(' | '),fmt(sc.raw),fmt(sc.got),fmt(sc.max),sc.pct,ad&&ad.n?(ad.n-ad.d)+' of '+ad.n:'',s.secs>5?Math.round(s.secs/6)/10:'']);});
+    return row.concat([textsFor(s.overallComments,r.generalBank).join(' | '),fmt(sc.raw),fmt(sc.got),fmt(sc.max),sc.pct,ad&&ad.n?(ad.n-ad.d)+' of '+ad.n:'',s.secs>5?Math.round(s.secs/6)/10:'',
+      sc.m&&sc.m.E?sc.m.E.label:'',sc.m?(sc.m.earned?sc.m.earned.label:(sc.m.E?'None':'')):'',sc.m?sc.m.missed.map(function(o){return o.q.text;}).join(' | '):'',s.regradeOf?'Yes':'',sc.bonus||'']);});
   download(safeName(r.title)+'_all_data.csv',[head].concat(rows).map(function(x){return x.map(q).join(',');}).join('\r\n'),'text/csv');
   $('#recStatus').textContent='Downloaded '+plural(list.length,'record')+'. Free-text comments are left out so nothing identifying slips into the file.';
 }
@@ -1607,11 +1850,11 @@ function renderAnnounce(){
 }
 function draftAnnouncement(){
   var r=R(),pool=annPool();if(!pool.length){$('#annStatus').textContent='There are no completed submissions for this semester yet.';return;}
-  var ranked=r.criteria.map(function(c){return {c:c,p:critPct(c,pool)};}).filter(function(x){return x.p!=null;}).sort(function(a,b){return b.p-a.p;});
+  var ranked=CRS().map(function(c){return {c:c,p:critPct(c,pool)};}).filter(function(x){return x.p!=null;}).sort(function(a,b){return b.p-a.p;});
   var strong=ranked.filter(function(x){return x.p>=80;}).slice(0,2),weak=ranked.slice().reverse().filter(function(x){return x.p<85&&strong.indexOf(x)<0;}).slice(0,2);
-  var missed=[];r.criteria.forEach(function(c){c.checks.filter(function(k){return k.text.trim();}).forEach(function(k){var m=pool.filter(function(s){return lvOf(c,s)&&(s.checks[c.id]||[]).indexOf(k.id)<0;}).length;if(m)missed.push({k:k,p:Math.round(m/pool.length*100)});});});
+  var missed=[];CRS().forEach(function(c){c.checks.filter(function(k){return k.text.trim();}).forEach(function(k){var m=pool.filter(function(s){return lvOf(c,s)&&(s.checks[c.id]||[]).indexOf(k.id)<0;}).length;if(m)missed.push({k:k,p:Math.round(m/pool.length*100)});});});
   missed.sort(function(a,b){return b.p-a.p;});missed=missed.filter(function(x){return x.p>=30;}).slice(0,3);
-  var used=[];r.criteria.forEach(function(c){c.bank.forEach(function(b){var n=pool.filter(function(s){return (s.comments[c.id]||[]).indexOf(b.id)>-1;}).length;if(n>1||pool.length<3&&n)used.push({t:b.text,n:n});});});
+  var used=[];CRS().forEach(function(c){c.bank.forEach(function(b){var n=pool.filter(function(s){return (s.comments[c.id]||[]).indexOf(b.id)>-1;}).length;if(n>1||pool.length<3&&n)used.push({t:b.text,n:n});});});
   used.sort(function(a,b){return b.n-a.n;});used=used.slice(0,3);
   function top(c){var l=c.levels.slice().sort(function(a,b){return num(b.points)-num(a.points);})[0];return l&&l.desc?l.desc:'';}
   var L=['Hi everyone,','','I finished grading '+(r.title||'this assignment')+'. Here is what I saw across the class and what to focus on next time.',''];
@@ -1620,6 +1863,9 @@ function draftAnnouncement(){
   if(missed.length){L.push('Easy points to pick up');missed.forEach(function(x){L.push('- '+x.k.text+'. '+share(x.p).charAt(0).toUpperCase()+share(x.p).slice(1)+' missed this one.');});L.push('');}
   if(used.length){L.push('Advice I gave most often');used.forEach(function(x){L.push('- '+x.t);});L.push('');}
   if(lateOn()){var lp=Math.round(pool.filter(function(s){return score(s).ded>0;}).length/pool.length*100);if(lp>=20){var pol=R().late.tiers.filter(function(x){return num(x.pct)>0;}).map(function(x){return x.label.toLowerCase()+(num(x.pct)>=100?' earns no credit':' loses '+fmt(x.pct)+'% of the points');}).join(', and ');L.push('A note on deadlines');L.push('Some of you turned this in late. Plan ahead for the next one. As a reminder, '+pol+'.');L.push('');}}
+  if(isM()){var same2=pool.filter(function(s){var x=mResult(s);return x.E&&x.earned&&x.earned.id===x.E.id;}).length,rs3=reqStats(pool).filter(function(x){return x.p>=30;}).sort(function(a,b){return b.p-a.p;}).slice(0,3);
+    L.push('Mastery levels');L.push('- '+share(Math.round(same2/pool.length*100)).charAt(0).toUpperCase()+share(Math.round(same2/pool.length*100)).slice(1)+' earned the level you chose. Well done.');
+    rs3.forEach(function(x){L.push('- For '+x.t.label+', check this requirement carefully: '+x.q.text);});L.push('');}
   L.push('If any of this feedback is unclear, come to office hours or send me a message. We can go over it together.','','Dr. Sharilyn Rennie');
   $('#annText').value=L.join('\n');$('#annStatus').textContent='Draft ready. Edit anything you like, or copy the polish prompt to have Claude smooth it in your voice.';$('#annText').focus();
 }
@@ -1664,6 +1910,7 @@ document.addEventListener('click',function(e){
     else show(v);return;}
   var b=e.target.closest('[data-sact]');if(!b||b.closest('#gm'))return;var s=sub(b.dataset.sid);if(!s)return;
   if(b.dataset.sact==='edit')openGM(s);
+  else if(b.dataset.sact==='regrade'){var rg=newRegrade(s);if(rg){prefs.across=false;openGM(rg);}}
   else if(b.dataset.sact==='sheet')openSheet(s,b);
   else if(b.dataset.sact==='del'){if(!confirm('Remove '+s.label+'? Its scores and comments will be deleted.'))return;state.subs=state.subs.filter(function(x){return x!==s;});saveRecs();render();announce(s.label+' removed.');$('#btnNewSub').focus();}
 });
@@ -1837,7 +2084,14 @@ function pasteGo(){
 }
 $('#btnPaste').addEventListener('click',function(){openPaste(this);});
 /* ---- Generate rubric ---- */
-var genOpener=null,genCrits=[];
+var genOpener=null,genCrits=[],genTiers=[],genPtsDefault=20;
+var TIERHEAD=/^\s*(?:#+\s*)?(?:for\s+(?:an?\s+)?|to\s+earn\s+(?:an?\s+)?)?(\d{2,3})\s*%(?:\s*(?:level|tier|option|grade|work))?\s*[:\-\u2013)]?\s*(.*)$/i;
+function detectTiers(txt){var out=[],cur=null;String(txt||'').replace(/\r/g,'').split('\n').forEach(function(l){if(!l.trim())return;var m=l.match(TIERHEAD);
+  if(m&&num(m[1])<=100&&num(m[1])>=50){cur={pct:num(m[1]),reqs:[]};out.push(cur);var rest=m[2].trim();if(rest.length>8)rest.split(/;\s+/).forEach(function(x){cur.reqs.push(x.replace(/^[-*\u2022]\s*/,''));});return;}
+  if(cur){var b=l.match(/^\s*(?:[-*\u2022\u00b7\u25e6\u25aa]|\(?\d{1,2}[.)]|\(?[a-h][.)])\s*(.+)$/);if(b)cur.reqs.push(b[1].trim());}});
+  out=out.filter(function(x){return x.reqs.length;});return out.length>=2?out:[];}
+function tiersFromJSON(txt){var a=txt.indexOf('{'),b=txt.lastIndexOf('}');if(a<0||b<a)return [];try{var o=JSON.parse(txt.slice(a,b+1).replace(/```(?:json)?/gi,'')),L=o.levels||(o.mastery&&o.mastery.levels);
+  if(!Array.isArray(L))return [];return L.map(function(x){return {pct:Math.max(0,Math.min(100,num(x.percent!=null?x.percent:x.pct))),label:String(x.label||x.level||''),reqs:(Array.isArray(x.requirements)?x.requirements:[]).map(function(q){return pTxt(typeof q==='string'?q:q.text,300);}).filter(Boolean)};}).filter(function(x){return x.pct;});}catch(e){return [];}}
 function lvNames(n){return {3:['Meets expectations','Partially meets','Not yet'],4:['Exemplary','Proficient','Developing','Beginning'],5:['Exemplary','Proficient','Developing','Beginning','Missing']}[n];}
 function lvRatio(n){return {3:[1,.7,.3],4:[1,.8,.6,.3],5:[1,.85,.7,.5,0]}[n];}
 function half(x){return Math.round(x*2)/2;}
@@ -1847,15 +2101,33 @@ function openGen(opener){
   var have=r.criteria.map(function(c){return norm(c.name);}),cur=r.criteria.filter(function(c){return !/^(new criterion|untitled)/i.test(c.name);}).reduce(function(a,c){return a+maxPts(c);},0);
   $('#genPts').value=cur&&cur<=1000?cur:20;
   $('#genStd').innerHTML=loadStd().map(function(c,i){return '<label class="chip" for="gs-'+i+'"><input type="checkbox" id="gs-'+i+'" data-gstd="'+i+'"'+(have.indexOf(norm(c.name))<0?' checked':'')+'><span class="box">'+ic('check')+'</span>'+esc(c.name)+' ('+fmt(maxPts(c))+' pts)</label>';}).join('')||'<p class="empty">No standard criteria saved.</p>';
-  $('#genWarn').textContent='';$('#genCopyStatus').textContent='';$('#genReply').value='';$('#genFileStatus').textContent='';genCrits=[];genShow();
+  $('#genWarn').textContent='';$('#genCopyStatus').textContent='';$('#genReply').value='';$('#genFileStatus').textContent='';genCrits=[];genTiers=[];
+  $('#genM').checked=isM()||detectTiers((r.instructions||'')+'\n'+(r.material||'')).length>0;genPtsDefault=$('#genPts').value;if($('#genM').checked)$('#genPts').value=isM()?r.mastery.pts:100;genMode();genShow();
   $('#genDlg').showModal();(r.instructions?$('#genMat'):$('#genInstr')).focus();
 }
-function genShow(){var el=$('#genPrev');$('#genUse').disabled=!genCrits.length;
+function genMode(){$('#genStdBox').hidden=$('#genM').checked;}
+function genShow(){var el=$('#genPrev');
+  if($('#genM').checked){$('#genUse').disabled=!genTiers.length;if(!genTiers.length){el.textContent='No draft yet. Use Claude or the quick draft above.';return;}
+    el.innerHTML='<strong style="font-weight:500">Draft: '+plural(genTiers.length,'mastery level')+'.</strong> '+genTiers.map(function(x){return esc(x.label||x.pct+'%')+' adds '+plural(x.reqs.length,'requirement');}).join('; ')+'. Each level includes the ones below it.';return;}
+  $('#genUse').disabled=!genCrits.length;
   if(!genCrits.length){el.textContent='No draft yet. Use Claude or the quick draft above.';return;}
   var tot=genCrits.reduce(function(a,c){return a+maxPts(c);},0),std=$$('[data-gstd]:checked').length;
   el.innerHTML='<strong style="font-weight:500">Draft: '+plural(genCrits.length,'criterion','criteria')+', '+fmt(tot)+' points'+(std?', plus '+plural(std,'standard criterion','standard criteria'):'')+'.</strong> '+genCrits.map(function(c){return esc(c.name)+' ('+fmt(maxPts(c))+' pts'+(c.checks.length?', '+plural(c.checks.length,'checklist item'):'')+(c.bank.length?', '+plural(c.bank.length,'comment'):'')+')';}).join('; ')+'.';}
 function genSrc(){return {ins:scrub($('#genInstr').value).text.trim(),mat:scrub($('#genMat').value).text.trim()};}
+function genPromptM(){
+  var s=genSrc(),T=tiersAsc(),ex={levels:T.map(function(x){return {label:x.label,percent:x.pct,requirements:['']};})};
+  return 'You are helping Dr. Sharilyn Rennie, an anatomy and physiology professor, set up mastery grading for an assignment. Students choose the grade they are working toward. Read the instructions and the assignment below and write the requirements for each level.\n\nRules:\n'+
+  '1. Use these levels: '+T.map(function(x){return x.label;}).join(', ')+'. Levels are cumulative: a student earns a level only by meeting every requirement of that level and every lower level.\n'+
+  '2. For each level, list only the requirements that are new at that level. Do not repeat requirements from lower levels.\n'+
+  '3. If the instructions already say what each level requires, use that wording exactly and do not add to it.\n'+
+  '4. Each requirement is one specific, observable thing that is either met or not met, such as "Labels all four heart chambers correctly". Avoid vague words like "good" or "adequate".\n'+
+  '5. Use 2 to 5 requirements per level. Higher levels should ask for deeper work, such as explaining mechanisms, applying to a clinical case, or making connections, not just more of the same.\n'+
+  '6. Check every scientific term and fact for accuracy. Do not invent requirements the materials do not support. Never use em dashes.\n'+
+  '\nReply with JSON only, no other text, in exactly this shape:\n'+JSON.stringify(ex,null,2)+
+  '\n\nASSIGNMENT TITLE: '+R().title+(s.ins?'\n\nINSTRUCTIONS GIVEN TO STUDENTS:\n'+s.ins.slice(0,15000):'')+(s.mat?'\n\nTHE ASSIGNMENT ITSELF:\n'+s.mat.slice(0,15000):'');
+}
 function genPrompt(){
+  if($('#genM').checked)return genPromptM();
   var s=genSrc(),n=num($('#genLv').value)||4,pts=Math.max(1,num($('#genPts').value)||20),std=$$('[data-gstd]:checked').map(function(x){return (loadStd()[num(x.dataset.gstd)]||{}).name;}).filter(Boolean);
   var ex={criteria:[{name:'',desc:'',levels:lvNames(n).map(function(l,i){return {name:l,points:half(pts/4*lvRatio(n)[i]),desc:''};}),checklist:[''],comments:['']}]};
   return 'You are helping Dr. Sharilyn Rennie, an anatomy and physiology professor, build a grading rubric. Read the instructions and the assignment below and write an analytic rubric that grades exactly what students were asked to do.\n\nRules:\n'+
@@ -1895,6 +2167,11 @@ function localDraft(){
   });
 }
 function genUse(){
+  if($('#genM').checked){if(!genTiers.length)return;var r0=R(),s0=genSrc();r0.instructions=s0.ins.slice(0,20000);r0.material=s0.mat.slice(0,20000);
+    var graded0=state.subs.some(function(x){return x.elect||Object.keys(x.level||{}).length;});
+    r0.mastery.tiers=genTiers.map(function(x){return {id:uid(),label:x.label||x.pct+'%',pct:x.pct,reqs:x.reqs.map(mkItem)};});r0.mastery.enabled=true;r0.mastery.pts=Math.max(1,num($('#genPts').value)||100);
+    if(graded0){var v0={id:uid(),n:r0.versions.reduce(function(m,x){return Math.max(m,x.n);},0)+1,date:Date.now(),note:'Mastery levels generated from the instructions'};r0.versions.push(v0);r0.version=v0.id;}
+    state.selCrit='_mastery';saveNow();$('#genDlg').close();renderAll();var msg0='Mastery grading set with '+plural(genTiers.length,'level')+'. Review the requirements, then grade.';if(state.wz)show('start');else show('rubric');$('#saveStatus').textContent=msg0;announce(msg0);return;}
   if(!genCrits.length)return;var r=R(),L=loadStd(),std=$$('[data-gstd]:checked').map(function(x){return L[num(x.dataset.gstd)];}).filter(Boolean);
   var s=genSrc();r.instructions=s.ins.slice(0,20000);r.material=s.mat.slice(0,20000);
   var graded=state.subs.some(function(x){return Object.keys(x.level||{}).length;});
@@ -1908,10 +2185,14 @@ $('#btnGen').addEventListener('click',function(){openGen(this);});
 $('#genClose').addEventListener('click',function(){$('#genDlg').close();});
 $('#genDlg').addEventListener('close',function(){if(genOpener&&document.body.contains(genOpener))genOpener.focus();});
 $('#genCopy').addEventListener('click',function(){var s=genSrc();if(!s.ins&&!s.mat){$('#genWarn').textContent='Add the instructions or the assignment first.';$('#genInstr').focus();return;}$('#genWarn').textContent='';copyText(genPrompt(),$('#genCopyStatus'),'Prompt copied. Paste it into Claude, then paste the reply below.');});
-$('#genReply').addEventListener('input',function(){clearTimeout(this._t);var ta=this;this._t=setTimeout(function(){genCrits=parseRubricText(ta.value);if(ta.value.trim()&&!genCrits.length)$('#genPrev').textContent='That reply did not look like a rubric. Paste Claude\'s whole reply, including the curly braces.';else genShow();},250);});
+$('#genReply').addEventListener('input',function(){clearTimeout(this._t);var ta=this;this._t=setTimeout(function(){if($('#genM').checked){genTiers=tiersFromJSON(ta.value);if(ta.value.trim()&&!genTiers.length)$('#genPrev').textContent='That reply did not look like mastery levels. Paste Claude\'s whole reply, including the curly braces.';else genShow();return;}
+    genCrits=parseRubricText(ta.value);if(ta.value.trim()&&!genCrits.length)$('#genPrev').textContent='That reply did not look like a rubric. Paste Claude\'s whole reply, including the curly braces.';else genShow();},250);});
 $('#genLocal').addEventListener('click',function(){var s=genSrc();if(!s.ins&&!s.mat){$('#genWarn').textContent='Add the instructions or the assignment first.';$('#genInstr').focus();return;}
+  if($('#genM').checked){genTiers=detectTiers(s.ins+'\n'+s.mat).map(function(x){return {pct:x.pct,label:x.pct+'%',reqs:x.reqs.map(function(q){return pTxt(q,300);})};});
+    $('#genWarn').textContent=genTiers.length?'':'I could not find levels written out in the text, such as "For 80%:" followed by a list. Use the Claude prompt instead.';genShow();if(genTiers.length)$('#genUse').focus();return;}
   genCrits=localDraft();$('#genWarn').textContent=genCrits.length?'':'I could not find numbered questions, bullet points, or task sentences. Use the Claude prompt instead.';genShow();if(genCrits.length)$('#genUse').focus();});
 $('#genStd').addEventListener('change',genShow);
+$('#genM').addEventListener('change',function(){$('#genPts').value=this.checked?(isM()?R().mastery.pts:100):genPtsDefault;genMode();genShow();});
 $('#genUse').addEventListener('click',genUse);
 $('#genUpload').addEventListener('click',function(){$('#genFileIn').click();});
 $('#genFileIn').addEventListener('change',async function(){var fl=this.files[0];this.value='';if(!fl)return;var a=await readAssignment(fl);
