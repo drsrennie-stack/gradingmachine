@@ -16,7 +16,12 @@
   --sage:#B6B9A8;      /* muted sage: dividers, decoration only */
   --olive:#777D6D;     /* olive: control borders, bars, text 24px+ only */
   --ink:#23251F;       /* dark charcoal: all text, focus */
-  --tour:#5E7A5A;      /* deeper sage: tour pointer only (4.6:1 on white) */
+  --forest:#3F5A45;    /* deep sage green: primary actions, selection (7.35:1 on white) */
+  --forest-2:#34493A;  /* hover */
+  --clay:#7E4028;      /* clay: small accent text and lines (7.65:1 on white) */
+  --ochre:#B08A3E;     /* ochre: decorative lines and bars only */
+  --tint:#EEF2EC;      /* sage tint: selected fills */
+  --tour:var(--forest);
   --r:3px;
   --font:"Avenir Next","Manrope",system-ui,-apple-system,"Segoe UI",sans-serif;
 }
@@ -347,6 +352,34 @@ dl.keys dd{margin:0;font-weight:400}
 @keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 @keyframes fill{to{width:100%}}
 @media (prefers-reduced-motion:reduce){.intro-mark path{stroke-dashoffset:0}.intro-bar span{width:100%}}
+/* ---- Color accents: muted, earthy, minimal ---- */
+.eyebrow{color:var(--clay)}
+.brand-mark{background:var(--forest);border-color:var(--forest);color:var(--bg)}
+.nav button[aria-current=page]{box-shadow:inset 3px 0 0 var(--clay)}
+.btn.primary{background:var(--forest);border-color:var(--forest);color:var(--bg)}
+.btn.primary:hover{background:var(--forest-2);border-color:var(--forest-2)}
+.lv:has(input:checked){border-color:var(--forest);background:var(--tint)}
+.chip:has(input:checked){background:var(--tint)}
+.chip:has(input:checked) .box{background:var(--forest);border-color:var(--forest)}
+.badge.done{background:var(--tint);border-color:var(--forest)}
+.choice.main{border-color:var(--forest)}
+.choice:hover{background:var(--tint)}
+.choice .ic{color:var(--forest)}
+.tiles>*{border-top:3px solid var(--forest)}
+.tiles>*:nth-child(3n+2){border-top-color:var(--clay)}
+.tiles>*:nth-child(3n+3){border-top-color:var(--ochre)}
+.bars .fill,.meter>span{background:var(--forest)}
+.page-head h1::after{content:"";display:block;width:44px;height:2px;background:var(--clay);margin-top:.55rem}
+.intro-mark{background:var(--forest)}
+.intro-bar span{background:var(--forest)}
+.intro-feats li{border-top:2px solid var(--forest)}
+.intro-feats li:nth-child(2){border-top-color:var(--clay)}
+.intro-feats li:nth-child(3){border-top-color:var(--ochre)}
+.wz-steps li[aria-current=step]{border-color:var(--forest);background:var(--tint)}
+.wz-steps li.done .wz-num{background:var(--forest);border-color:var(--forest)}
+.m-result{border-color:var(--forest)}
+.across-line{border-color:var(--forest)}
+@media (forced-colors:active){.page-head h1::after{display:none}}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;animation:none!important;scroll-behavior:auto!important}}
 @media (forced-colors:active){
   .lv:has(input:checked),.chip:has(input:checked){outline:3px solid CanvasText}
@@ -683,6 +716,9 @@ dl.keys dd{margin:0;font-weight:400}
     </div>
     <p class="hint" id="impNameHint">Detected from the file. Edit it if you like. The code keeps the same assignment together across semesters.</p>
     <fieldset style="margin-top:1rem"><legend>Where does this belong?</legend><div id="impMatches"></div></fieldset>
+    <div class="field" style="margin-top:1rem"><label for="impText">Student instructions</label>
+      <p class="hint" id="impTextHint" style="margin-top:0">This is what was read from the file. Check it, fix anything, or paste the instructions here yourself.</p>
+      <textarea id="impText" rows="8" data-noscan="1"></textarea></div>
     <div id="impOpts"></div>
   </div>
   <div class="dlg-foot" style="display:flex;justify-content:flex-end;gap:.5rem;padding:.8rem 1.1rem;border-top:1px solid var(--sage);background:var(--bg2)">
@@ -2077,6 +2113,16 @@ function findMatches(name,code){
   return Object.keys(lib).map(function(id){var x=lib[id],best=Math.max(sim(name,x.title),(x.aliases||[]).reduce(function(m,a){return Math.max(m,sim(name,a));},0));if(code&&x.code&&norm(code)===norm(x.code))best=Math.max(best,0.95);return {id:id,r:x,s:best};})
     .filter(function(m){return m.s>=0.34;}).sort(function(a,b){return b.s-a.s;}).slice(0,3);
 }
+var PDFJS='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
+function loadPdfJs(){if(window.pdfjsLib)return Promise.resolve(window.pdfjsLib);
+  return new Promise(function(ok,no){var s=document.createElement('script');s.src=PDFJS+'pdf.min.js';s.crossOrigin='anonymous';s.onload=function(){if(!window.pdfjsLib)return no(new Error('pdfjs'));window.pdfjsLib.GlobalWorkerOptions.workerSrc=PDFJS+'pdf.worker.min.js';ok(window.pdfjsLib);};s.onerror=function(){s.remove();no(new Error('pdfjs'));};document.head.appendChild(s);});}
+async function pdfText(buf){var lib;try{lib=await loadPdfJs();}catch(e){return null;}
+  try{var doc=await lib.getDocument({data:new Uint8Array(buf),isEvalSupported:false}).promise,out=[];
+    for(var i=1;i<=Math.min(doc.numPages,40);i++){var pg=await doc.getPage(i),tc=await pg.getTextContent(),line='';
+      tc.items.forEach(function(it){line+=it.str;if(it.hasEOL){out.push(line);line='';}});if(line)out.push(line);out.push('');}
+    try{doc.destroy();}catch(e){}
+    return out.map(function(l){return l.replace(/[ \t]+/g,' ').trim();}).join('\n').replace(/\n{3,}/g,'\n\n').trim();
+  }catch(e){return '';}}
 async function readAssignment(file){
   var ext=(file.name.split('.').pop()||'').toLowerCase(),cs=stripCanvas(file.name),title='',text='',warn=[];
   if(cs.student)warn.push('This looks like a student submission downloaded from Canvas. The student\'s name in the file name was ignored and is not saved. Import the assignment instructions instead, if you have them.');
@@ -2086,8 +2132,11 @@ async function readAssignment(file){
       var h=lines.filter(function(l){return /^(title|heading1|heading 1)$/i.test(l.style);})[0]||lines[0];title=h?h.text:'';text=lines.map(function(l){return l.text;}).join('\n');}
     else if(ext==='html'||ext==='htm'){var d=new DOMParser().parseFromString(await file.text(),'text/html');var h1=d.querySelector('h1');title=tidy((h1&&h1.textContent)||(d.title||''));text=tidy(d.body?d.body.textContent:'') ;}
     else if(ext==='txt'||ext==='md'){text=await file.text();title=tidy((text.split(/\r?\n/).filter(function(l){return l.trim();})[0]||'').replace(/^#+\s*/,''));}
-    else if(ext==='pdf'){var raw=new TextDecoder('latin1').decode(await file.arrayBuffer()),m=raw.match(/\/Title\s*\(([^)]{2,200})\)/);if(m&&!/^untitled|microsoft word/i.test(m[1]))title=tidy(m[1]);
-      warn.push('PDF text cannot be read here, so only the name was detected. To give Claude the instructions, import a Word or text version.');}
+    else if(ext==='pdf'){var buf=await file.arrayBuffer(),raw=new TextDecoder('latin1').decode(buf),m=raw.match(/\/Title\s*\(([^)]{2,200})\)/);if(m){var tv=m[1];if(/^\u00fe\u00ff/.test(tv))tv=tv.slice(2).replace(/\u0000/g,'');if(!/^untitled|microsoft word/i.test(tv)&&!/[\u0000-\u001f\u00fe\u00ff]/.test(tv))title=tidy(tv);}
+      var pt=await pdfText(buf);
+      if(pt===null)warn.push('The PDF reader could not load (it needs an internet connection). Paste the instructions into the box below instead.');
+      else if(!pt.replace(/\s/g,'').length)warn.push('This PDF has no readable text. It is probably a scan or a photo. Paste the instructions into the box below instead.');
+      else{text=pt;if(!title)title=tidy((pt.split('\n').filter(function(l){return l.trim();})[0]||''));}}
     else throw new Error('type');
   }catch(e){if(e.message==='type'){warn.push('Use a Word (.docx), PDF, text, or web page file.');}else warn.push('The file could not be fully read, so the name comes from the file name.');}
   if(title.length>100||title.length<3)title='';
@@ -2103,13 +2152,14 @@ function showImp(){
   var code=mkCode(imp.title);imp.matches=findMatches(imp.title,code);
   $('#impFile').textContent='From '+imp.fileName+(imp.text?' · '+plural(imp.text.split(/\s+/).filter(Boolean).length,'word')+' read':'')+(imp.crits&&imp.crits.length?' · rubric with '+plural(imp.crits.length,'criterion','criteria'):'');
   $('#impNameHint').textContent='Detected from the '+(imp.pasted?'pasted text':'file')+'. Edit it if you like. The code keeps the same assignment together across semesters.';
-  $('#impWarn').textContent=imp.warn.join(' ');
+  $('#impWarn').textContent=imp.warn.join(' ');$('#impWarn').hidden=!imp.warn.length;
+  $('#impText').value=imp.text||'';$('#impTextHint').textContent=imp.text?'This is what was read from the '+(imp.pasted?'pasted text':'file')+'. Check it, fix anything, or replace it.':'Nothing could be read from the file. Paste the student instructions here so Claude can see them.';
   $('#impName').value=imp.title;
   var m0=imp.matches[0];$('#impCode').value=(m0&&m0.s>=0.6&&m0.r.code)?m0.r.code:code;
   $('#impMatches').innerHTML=imp.matches.map(function(m,i){return '<label class="match" for="im-'+i+'"><input type="radio" name="impWhere" id="im-'+i+'" value="'+esc(m.id)+'"'+(i===0&&m.s>=0.5?' checked':'')+'><span><strong style="font-weight:500">Same assignment as '+esc((m.r.code?m.r.code+' · ':'')+m.r.title)+'</strong><br><span class="muted" style="font-size:.85rem">'+Math.round(m.s*100)+'% name match · new semester or version of it. Your grades and data stay together.</span></span></label>';}).join('')+
     '<label class="match" for="im-new"><input type="radio" name="impWhere" id="im-new" value="_new"'+(imp.matches.length&&imp.matches[0].s>=0.5?'':' checked')+'><span><strong style="font-weight:500">New assignment</strong><br><span class="muted" style="font-size:.85rem">Start a new rubric with this name. Add criteria next.</span></span></label>';
   $('#impOpts').innerHTML='<label class="chip" for="impVer" style="margin:.3rem .4rem .4rem 0"><input type="checkbox" id="impVer"><span class="box">'+ic('check')+'</span>Record this as an updated version (date and time stamped)</label>'+
-    (imp.text?'<label class="chip" for="impKeep"><input type="checkbox" id="impKeep" checked><span class="box">'+ic('check')+'</span>Save the instructions so Claude sees them when scoring</label>':'')+
+    '<label class="chip" for="impKeep"><input type="checkbox" id="impKeep" checked><span class="box">'+ic('check')+'</span>Save the instructions so Claude sees them when scoring and building the rubric</label>'+
     (imp.crits&&imp.crits.length?'<label class="chip" for="impCrits" style="margin-top:.4rem"><input type="checkbox" id="impCrits" checked><span class="box">'+ic('check')+'</span>Use the '+plural(imp.crits.length,'pasted criterion','pasted criteria')+' as the rubric</label><p class="hint">For an assignment you already have, this replaces its criteria and starts a new dated version. Grades you already finished keep their totals in Analysis by version.</p>':'');
   $('#impDlg').showModal();$('#impName').focus();$('#impName').select();
 }
@@ -2119,7 +2169,8 @@ function confirmImport(){
   else tgt=where===R().id?R():normalizeRubric(loadLib()[where]);
   if(code)tgt.code=code;
   [imp.title,name].forEach(function(a){if(a&&norm(a)!==norm(tgt.title)&&!tgt.aliases.some(function(x){return norm(x)===norm(a);}))tgt.aliases.push(a);});
-  if(keep&&imp.text)tgt.instructions=imp.text;
+  var itx=scrub($('#impText').value).text.trim().slice(0,20000);imp.text=itx;
+  if(keep&&itx)tgt.instructions=itx;
   var useC=$('#impCrits')&&$('#impCrits').checked&&imp.crits&&imp.crits.length;
   if(useC){tgt.criteria=imp.crits.map(cloneCrit);if(where!=='_new')ver=true;}
   if(ver&&where!=='_new'){var v={id:uid(),n:tgt.versions.reduce(function(m,x){return Math.max(m,x.n);},0)+1,date:Date.now(),note:useC?'Rubric replaced from pasted text':'Imported from '+imp.fileName};tgt.versions.push(v);tgt.version=v.id;}
